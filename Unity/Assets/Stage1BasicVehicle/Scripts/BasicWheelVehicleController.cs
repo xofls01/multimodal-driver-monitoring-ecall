@@ -37,6 +37,7 @@ public class BasicWheelVehicleController : MonoBehaviour
 
     [Header("Control Mode")]
     public VehicleControlMode controlMode = VehicleControlMode.Manual;
+    public CruiseControlController cruiseController;
     public float remoteCommandTimeoutSeconds = 0.75f;
     [Range(0f, 1f)] public float connectionLostBrakeInput = 0.3f;
 
@@ -47,6 +48,25 @@ public class BasicWheelVehicleController : MonoBehaviour
     public bool RemoteHazard { get; private set; }
     public bool RemoteEcall { get; private set; }
     public bool EmergencyOverrideActive { get; private set; }
+    public string EffectiveControlMode
+    {
+        get
+        {
+            if (EmergencyOverrideActive)
+            {
+                return "Emergency";
+            }
+            if (controlMode == VehicleControlMode.Remote)
+            {
+                return "Remote";
+            }
+            if (cruiseController != null && cruiseController.cruiseEnabled)
+            {
+                return "Cruise";
+            }
+            return "Manual";
+        }
+    }
     public bool IsRemoteCommandFresh
     {
         get
@@ -74,6 +94,10 @@ public class BasicWheelVehicleController : MonoBehaviour
     private void Awake()
     {
         vehicleBody = GetComponent<Rigidbody>();
+        if (cruiseController == null)
+        {
+            cruiseController = GetComponent<CruiseControlController>();
+        }
         initialPosition = transform.position;
         initialRotation = transform.rotation;
 
@@ -96,6 +120,11 @@ public class BasicWheelVehicleController : MonoBehaviour
                 ? VehicleControlMode.Remote
                 : VehicleControlMode.Manual;
         }
+
+        if (CruiseToggleKeyPressed() && cruiseController != null)
+        {
+            cruiseController.SetEnabled(!cruiseController.cruiseEnabled);
+        }
     }
 
     private void FixedUpdate()
@@ -106,12 +135,16 @@ public class BasicWheelVehicleController : MonoBehaviour
 
         bool useEmergencyControl = EmergencyOverrideActive;
         bool useRemoteControl = controlMode == VehicleControlMode.Remote;
+        bool useCruiseControl = !useEmergencyControl
+            && !useRemoteControl
+            && cruiseController != null
+            && cruiseController.cruiseEnabled;
         bool remoteCommandFresh = IsRemoteCommandFresh;
         float requestedSteering = useEmergencyControl
             ? emergencySteeringInput
             : useRemoteControl && remoteCommandFresh
                 ? remoteSteeringInput
-                : useRemoteControl ? 0f : steeringInput;
+                : useRemoteControl || useCruiseControl ? 0f : steeringInput;
 
         CurrentSteeringInput = Mathf.MoveTowards(
             CurrentSteeringInput,
@@ -154,6 +187,19 @@ public class BasicWheelVehicleController : MonoBehaviour
                 motorTorque = 0f;
                 brakeTorque = connectionLostBrakeInput * maxBrakeTorque;
             }
+        }
+        else if (useCruiseControl)
+        {
+            cruiseController.CalculateControl(
+                CurrentSpeedKph,
+                out float cruiseThrottle,
+                out float cruiseBrake
+            );
+            if (signedForwardSpeedKph < maxSpeedKph)
+            {
+                motorTorque = cruiseThrottle * maxMotorTorque;
+            }
+            brakeTorque = cruiseBrake * maxBrakeTorque;
         }
         else if (handbrakeInput)
         {
@@ -275,6 +321,15 @@ public class BasicWheelVehicleController : MonoBehaviour
 #endif
     }
 
+    private static bool CruiseToggleKeyPressed()
+    {
+#if ENABLE_INPUT_SYSTEM
+        return Keyboard.current != null && Keyboard.current.cKey.wasPressedThisFrame;
+#else
+        return Input.GetKeyDown(KeyCode.C);
+#endif
+    }
+
     public void SetRemoteControl(
         float throttle,
         float brake,
@@ -287,8 +342,11 @@ public class BasicWheelVehicleController : MonoBehaviour
         remoteThrottleInput = Mathf.Clamp01(throttle);
         remoteBrakeInput = Mathf.Clamp01(brake);
         remoteSteeringInput = Mathf.Clamp(steering, -1f, 1f);
-        RemoteHazard = hazard;
-        RemoteEcall = ecall;
+        if (!EmergencyOverrideActive)
+        {
+            RemoteHazard = hazard;
+            RemoteEcall = ecall;
+        }
         lastRemoteCommandTime = Time.realtimeSinceStartup;
 
         if (switchToRemoteMode)
@@ -303,8 +361,11 @@ public class BasicWheelVehicleController : MonoBehaviour
         remoteThrottleInput = 0f;
         remoteBrakeInput = 0f;
         remoteSteeringInput = 0f;
-        RemoteHazard = false;
-        RemoteEcall = false;
+        if (!EmergencyOverrideActive)
+        {
+            RemoteHazard = false;
+            RemoteEcall = false;
+        }
     }
 
     public void SetEmergencyControl(
@@ -321,7 +382,6 @@ public class BasicWheelVehicleController : MonoBehaviour
         emergencySteeringInput = Mathf.Clamp(steering, -1f, 1f);
         RemoteHazard = hazard;
         RemoteEcall = ecall;
-        controlMode = VehicleControlMode.Remote;
     }
 
     public void ClearEmergencyControl()

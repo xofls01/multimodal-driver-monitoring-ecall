@@ -4,6 +4,7 @@ public class BasicVehicleHUD : MonoBehaviour
 {
     public BasicWheelVehicleController vehicle;
     public UnityTcpVehicleBridge tcpBridge;
+    public CruiseControlController cruiseController;
 
     private GUIStyle titleStyle;
     private GUIStyle valueStyle;
@@ -48,8 +49,12 @@ public class BasicVehicleHUD : MonoBehaviour
         }
 
         Vector3 position = vehicle.transform.position;
+        if (cruiseController == null)
+        {
+            cruiseController = vehicle.cruiseController;
+        }
 
-        GUI.Box(new Rect(16f, 16f, 460f, 286f), string.Empty);
+        GUI.Box(new Rect(16f, 16f, 470f, 340f), string.Empty);
         GUI.Label(new Rect(30f, 26f, 320f, 28f), "Stage 1 · Basic Vehicle", titleStyle);
         GUI.Label(
             new Rect(30f, 58f, 320f, 26f),
@@ -68,18 +73,26 @@ public class BasicVehicleHUD : MonoBehaviour
         );
         GUI.Label(
             new Rect(30f, 136f, 380f, 26f),
-            $"제어  {vehicle.controlMode}",
+            $"제어  {vehicle.EffectiveControlMode}",
             valueStyle
         );
         GUI.Label(
             new Rect(30f, 162f, 380f, 26f),
+            cruiseController == null
+                ? "Cruise  Controller 없음"
+                : $"Cruise  {(cruiseController.cruiseEnabled ? "ON" : "OFF")}"
+                    + $" / 목표 {cruiseController.targetSpeedKph:F0} km/h",
+            valueStyle
+        );
+        GUI.Label(
+            new Rect(30f, 188f, 380f, 26f),
             tcpBridge == null
                 ? "TCP   Bridge 없음"
                 : $"TCP   {tcpBridge.ConnectionStatus}",
             valueStyle
         );
         GUI.Label(
-            new Rect(30f, 188f, 420f, 26f),
+            new Rect(30f, 214f, 420f, 26f),
             tcpBridge == null
                 ? "운전자 상태  ?"
                 : $"운전자 상태  {tcpBridge.CurrentDriverState}",
@@ -89,15 +102,16 @@ public class BasicVehicleHUD : MonoBehaviour
         EmergencyPullOverController emergency =
             vehicle.GetComponent<EmergencyPullOverController>();
         GUI.Label(
-            new Rect(30f, 214f, 420f, 26f),
+            new Rect(30f, 240f, 420f, 26f),
             emergency == null
                 ? "비상 정차  Controller 없음"
                 : $"비상 정차  {emergency.Phase}",
             valueStyle
         );
         GUI.Label(
-            new Rect(30f, 252f, 420f, 30f),
-            "W/S 가속·브레이크 · A/D 조향 · M 모드 · R 복귀",
+            new Rect(30f, 278f, 430f, 48f),
+            "C Cruise ON/OFF · M Manual/Remote · R 초기화\n"
+                + "Cruise OFF + Manual에서 W/S/A/D 키 사용",
             helpStyle
         );
     }

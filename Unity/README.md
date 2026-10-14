@@ -1,171 +1,179 @@
-# Unity 차량 환경 · Python TCP · E 감지 갓길 정차
+# Unity 차량 정속주행 · 운전자 경고 · 비상 갓길 정차
 
-이 묶음은 다음 환경을 자동으로 생성합니다.
+기존 WheelCollider 차량과 Python TCP 통신을 유지하면서 다음 기능을 제공합니다.
 
-- 2차선 직선 도로
-- 우측 갓길
-- `WheelCollider` 기반 기본 차량
-- 키보드 가속·브레이크·조향
-- 차량 추적 카메라
-- 속도와 위치 HUD
-- Python과 Unity의 양방향 TCP JSON 통신
-- 연결 종료 후 Unity 자동 재접속
-- Python에서 가속·브레이크·조향·비상등·e-Call 명령 전송
-- Python 모델의 `N/D/A/E` 분류 결과 전송
-- `E` 수신 시 비상등·갓길 이동·자동 정차·e-Call 상태 활성화
+- Play 즉시 시작하는 기본 60km/h P 제어 정속주행
+- 100m 도로 세그먼트 4개의 재활용식 직선 도로
+- Python의 `N/D/A/E` 상태 및 명시적 원격 운전 명령
+- 별도 스레드에서 실행되는 emergency/drowsiness/attention 시나리오
+- D/A 진입 시 터치 가능한 경고창과 1회 경고음
+- E 진입 시 비상 정차 상태 머신, 비상 UI, hazard/e-Call 상태
 
-## 설치
+## 처음 적용하는 순서
 
-1. 압축 파일을 해제합니다.
-2. 안에 있는 `Assets/Stage1BasicVehicle` 폴더를 Unity 프로젝트의 `Assets` 폴더 안으로 복사합니다.
-3. Unity로 돌아가 스크립트 컴파일이 끝날 때까지 기다립니다.
-4. 상단 메뉴에서 `Tools > Emergency Driving Demo > Create Stage 1 Scene`을 선택합니다.
-5. 자동 생성된 `BasicDrivingStage1` Scene에서 Play를 누릅니다.
+1. 이 폴더가 Unity 프로젝트의 `Assets/Stage1BasicVehicle` 아래에 있는지 확인합니다.
+2. 스크립트 컴파일이 끝나면 `Tools > Emergency Driving Demo > Create Stage 1 Scene`을 실행합니다.
+3. 생성된 `Assets/Stage1BasicVehicle/Scenes/BasicDrivingStage1.unity`를 엽니다.
+4. Play를 누릅니다. TCP 연결이 없어도 차량이 자동으로 출발합니다.
+5. 별도 터미널에서 아래 Python 서버를 실행해 상태 시나리오를 시험합니다.
 
-> 메뉴를 실행하면 현재 Scene을 저장할 것인지 먼저 확인한 뒤 새로운 기본 Scene을 생성합니다.
+> Scene Builder를 다시 실행하면 같은 경로의 데모 Scene을 새 구성으로 다시 저장합니다.
 
-## 조작법
+## 제어 우선순위
 
-| 키 | 기능 |
-|---|---|
-| `W` 또는 `↑` | 가속 |
-| `S` 또는 `↓` | 브레이크, 정차 후 후진 |
-| `A/D` 또는 `←/→` | 좌우 조향 |
-| `Space` | 강한 제동 |
-| `M` | Manual/Remote 모드 전환 |
-| `R` | 시작 위치로 복귀 |
-
-## Python TCP 제어 실행
-
-Unity Play를 누르기 전이나 누른 후 별도 터미널에서 실행합니다.
-
-```bash
-cd unity_stage1_basic_vehicle/python
-python3 vehicle_tcp_server.py
-```
-
-외부 패키지는 필요하지 않습니다. Python 표준 라이브러리만 사용합니다.
-
-서버가 실행되면 Unity HUD의 TCP 상태가 `Connected 127.0.0.1:5001`로 변경됩니다.
-
-다음 명령으로 Python에서 차량을 제어할 수 있습니다.
+최종 WheelCollider 토크, 브레이크, 조향은 `BasicWheelVehicleController`만 적용합니다.
 
 ```text
-forward
-left
-right
-center
-stop
-coast
-set 0.4 0 0.15
-hazard on
-ecall on
+Emergency > 명시적 Remote > Cruise > Manual
+```
+
+- `Emergency`: E가 한 번 감지되면 Reset 전까지 잠깁니다.
+- `Remote`: Python 패킷의 `control_mode="remote"`일 때만 활성화됩니다.
+- `Cruise`: 기본 ON이며 TCP 연결 여부와 무관하게 동작합니다.
+- `Manual`: Cruise를 끄고 Remote가 아닌 경우 키보드 입력을 사용합니다.
+
+`driver_state` 수신 자체는 제어 모드를 바꾸지 않습니다. 따라서 Python이 N/D/A를 20Hz로 전송해도 정속주행은 유지됩니다. `control_mode`이 없는 예전 송신기는 `remote_enabled`를 사용하므로 하위 호환됩니다.
+
+## 정속주행 제어식
+
+`CruiseControlController`가 다음 P 제어 입력을 계산하고 차량 컨트롤러에 전달합니다.
+
+```text
+error = targetSpeedKph - currentSpeedKph
+
+error > deadband   : throttle = clamp(error * throttleKp, 0, maximumThrottle)
+error < -deadband  : brake    = clamp(-error * brakeKp, 0, maximumBrake)
+deadband 내부      : throttle = 0, brake = 0
+```
+
+가속과 브레이크는 같은 프레임에 동시에 요청되지 않습니다. 기본값은 목표 60km/h, deadband 1.5km/h, `throttleKp=0.08`, `brakeKp=0.10`입니다.
+
+## 도로 세그먼트 재활용
+
+Scene Builder는 `RoadSegment_0`~`RoadSegment_3` 네 개만 만듭니다. 각 세그먼트에는 일반 도로 `X=-6~3`, 갓길 `X=3~6`, 갓길 중앙 `X=4.5`, 실선과 점선이 들어 있습니다.
+
+차량보다 충분히 뒤로 간 가장 뒤 세그먼트를 현재 가장 앞 세그먼트 다음 위치로 옮깁니다. 런타임 `Instantiate`/`Destroy`가 없고 GameObject 수가 늘지 않습니다. R로 차량을 시작점에 되돌리면 도로도 초기 위치로 복귀합니다.
+
+## Python 실행과 명령
+
+프로젝트 루트에서:
+
+```bash
+python3 Unity/python/vehicle_tcp_server.py
+```
+
+외부 패키지는 필요하지 않습니다.
+
+```text
+scenario emergency    # N 10초 -> E 유지
+scenario drowsiness   # N 5초 -> D 8초 -> N
+scenario attention    # N 5초 -> A 8초 -> N
+scenario stop         # 실행 중인 상태 시나리오 중단
+
 state N
 state D
 state A
 state E
+
+cruise                # Unity Cruise 활성화
+manual                # Cruise OFF, 키보드 제어
+remote                # 명시적 Python Remote 모드
+set 0.4 0 0.15
+forward
+left
+right
+center
+coast
+stop
 status
-demo
-manual
-remote
+help
+quit
 ```
 
-빠른 동작 확인은 `demo`를 입력하면 됩니다.
+시나리오는 별도 스레드에서 상태를 바꾸므로 20Hz TCP 송수신과 콘솔 입력은 계속 동작합니다. `scenario stop`은 현재 상태를 유지한 채 타이머만 중단합니다. `state ...` 명령은 실행 중 시나리오를 중단한 뒤 상태만 변경합니다.
+
+## 기능별 시험 절차와 예상 결과
+
+### 정속주행과 도로
+
+1. Python을 실행하지 않고 Unity Play를 누릅니다.
+2. HUD에서 `Cruise ON / 목표 60 km/h`를 확인합니다.
+3. 차량이 자동 출발해 목표 속도 부근을 유지하는지 봅니다.
+4. 오래 주행해도 Hierarchy의 RoadSegment가 4개인지 확인합니다.
+
+### D/A 경고
+
+1. Python 서버와 Unity를 실행합니다.
+2. `scenario drowsiness`를 입력합니다.
+3. 5초 후 `졸음운전이 감지되었습니다.` 창과 짧은 비프음이 한 번 발생합니다.
+4. `주의` 버튼을 클릭/터치합니다. D가 계속 전송돼도 창은 다시 열리지 않습니다.
+5. 시나리오가 N으로 끝난 뒤 `state D`를 입력하면 새로운 진입이므로 다시 표시됩니다.
+6. `scenario attention`도 같은 방식으로 A 문구를 확인합니다.
+
+### 비상 정차
+
+1. `cruise`를 입력하고 `scenario emergency`를 실행합니다.
+2. N으로 10초 주행 후 E가 20Hz 패킷에 계속 포함됩니다.
+3. D/A 창이 닫히고 비상 UI가 나타납니다.
+4. HUD의 단계가 아래 순서로 바뀌며 차량이 X=4.5 부근에서 정차합니다.
 
 ```text
-3초 가속 → 2초 우측 조향 → 비상등 작동 → 감속·정차
+SignalAndSlow -> MoveToShoulder -> StraightenAndBrake -> Stopped
 ```
 
-Python이 다른 컴퓨터에서 실행될 경우 Unity의 `PythonTcpBridge` 오브젝트를 선택하고 `Host`를 Python 컴퓨터의 IP 주소로 변경합니다.
+`Stopped`에서는 브레이크, `hazard=true`, `ecall=true`가 유지됩니다. 다시 시험하려면 Python에서 `state N`을 보낸 뒤 Unity에서 R을 누릅니다.
 
-## E 상태 갓길 정차 시험
+## 키보드 조작
 
-1. Python 서버와 Unity를 연결합니다.
-2. 차량을 일반 차선에서 전진시키거나 정지 상태로 둡니다.
-3. Python 터미널에 `state E`를 입력합니다.
-4. HUD에서 다음 단계가 차례로 바뀌는지 확인합니다.
+| 키 | 기능 |
+|---|---|
+| `C` | Cruise ON/OFF |
+| `M` | 로컬 Manual/Remote 플래그 전환 |
+| `W/S` | Manual에서 가속/브레이크·후진 |
+| `A/D` | Manual에서 좌우 조향 |
+| `Space` | Manual에서 강한 제동 |
+| `R` | 차량과 비상 상태 초기화 |
+
+Manual 운전을 하려면 `C`로 Cruise를 끄고 Manual 모드를 사용합니다.
+
+## Inspector 주요 값
+
+- `CruiseControlController`: 목표 속도, deadband, throttle/brake Kp, 최대 입력
+- `BasicWheelVehicleController`: 모터/브레이크 토크, 최대 속도, 조향각, Remote timeout
+- `EmergencyPullOverController`: 갓길 중앙 X, 신호 지연, 차선 변경 속도, 제동/조향 값
+- `EndlessRoadController`: 세그먼트 길이, 후방 재활용 거리, 차량/세그먼트 참조
+- `DriverStateWarningUI`: 경고음 볼륨, 주파수, 길이와 Canvas 참조
+- `UnityTcpVehicleBridge`: 서버 Host/Port, 상태 송신률
+
+## 데이터 전체 흐름
 
 ```text
-SignalAndSlow
-→ MoveToShoulder
-→ StraightenAndBrake
-→ Stopped
+모델/시나리오
+  -> shared.set_driver_state() / publish_prediction()
+  -> Python ControlCommand.driver_state
+  -> 20Hz NDJSON TCP
+  -> UnityTcpVehicleBridge.CurrentDriverState
+  -> D/A: DriverStateWarningUI
+  -> E: EmergencyPullOverController
+  -> BasicWheelVehicleController
+  -> WheelCollider
 ```
 
-`Stopped`에 도달하면 브레이크가 유지되고 `hazard`, `ecall` 상태가
-활성화됩니다. 다시 시험하려면 Python에서 `state N`을 보낸 후 Unity에서
-`R`을 누릅니다.
+D/A UI는 직전 상태와 현재 상태가 달라진 순간만 처리합니다. 사용자가 닫은 뒤 같은 D/A 패킷이 반복돼도 상태 진입 이벤트가 아니므로 다시 열리지 않습니다. D→A 또는 D/A→N→D/A는 새 진입으로 처리됩니다. 비상 정차 중에는 분류가 흔들려도 Emergency 컨트롤과 비상 UI가 우선합니다.
 
-실제 모델 코드에서는 추론 결과를 얻은 위치에서 다음 한 줄을 호출합니다.
+## 실제 모델 연결 위치
+
+`Unity/python/vehicle_tcp_server.py`에서 모델 추론 결과를 얻은 위치에 한 줄을 연결합니다.
 
 ```python
-shared.set_driver_state(predicted_label)  # predicted_label: N, D, A, E
+publish_prediction(shared, predicted_label)  # predicted_label: N, D, A, E
 ```
 
-현재 자동 조향은 Stage 1 직선 도로의 갓길 중앙인 월드 X 좌표 `4.5`를
-목표로 사용합니다. 다른 도로 또는 실제 차량 모델로 교체할 때는
-`PlayerVehicle > EmergencyPullOverController > Shoulder Center X`를 해당
-환경에 맞게 변경해야 합니다.
+또는 동일한 동작의 `shared.set_driver_state(predicted_label)`을 호출해도 됩니다. 이 함수는 운전자 상태만 변경하며 Cruise/Remote/Manual 모드는 변경하지 않습니다.
 
-## 생성되는 주요 오브젝트
+## 문제 해결
 
-```text
-Environment
-├─ MainRoad
-├─ Shoulder
-├─ LeftEdge
-├─ ShoulderBoundary
-├─ RightEdge
-└─ LaneDash ...
-
-PlayerVehicle
-├─ Body
-├─ Cabin
-├─ WheelCollider_FL/FR/RL/RR
-├─ WheelVisual_FL/FR/RL/RR
-└─ EmergencyPullOverController
-
-Main Camera
-VehicleHUD
-PythonTcpBridge
-Directional Light
-```
-
-## 정상 동작 확인
-
-- Play 후 W를 누르면 차량이 전진합니다.
-- A/D를 누르면 앞바퀴가 회전하며 차량 방향이 변합니다.
-- S 또는 Space를 누르면 차량이 감속합니다.
-- 화면 왼쪽 위에 현재 속도와 X/Z 위치가 표시됩니다.
-- 차량이 넘어지거나 도로 밖으로 나갔을 때 R을 누르면 시작 위치로 돌아옵니다.
-
-## 문제가 발생할 때
-
-### 키 입력이 동작하지 않는 경우
-
-`Edit > Project Settings > Player > Active Input Handling`을 `Both` 또는 현재 프로젝트에서 사용하는 입력 시스템으로 설정한 뒤 Unity를 재시작합니다. 제공 스크립트는 새 Input System과 기존 Input Manager를 모두 지원합니다.
-
-### 차량이 움직이지 않는 경우
-
-`PlayerVehicle`을 선택하고 다음 항목을 확인합니다.
-
-- `BasicWheelVehicleController`의 Wheel Collider 4개가 연결되어 있는지
-- Rigidbody의 `Is Kinematic`이 꺼져 있는지
-- Play 중 차량 바퀴가 도로 표면에 닿아 있는지
-
-### 재질이 분홍색으로 보이는 경우
-
-프로젝트의 렌더 파이프라인 설정이 다를 수 있습니다. 자동 생성된 Materials에서 Shader를 현재 프로젝트의 Lit 또는 Standard 계열 Shader로 변경합니다.
-
-## 2단계 완료 기준
-
-- Python 터미널에서 `status` 입력 시 Unity 속도와 위치가 표시됩니다.
-- Python 터미널에서 `forward` 입력 시 Unity 차량이 전진합니다.
-- `left`, `right`, `stop` 명령이 Unity 차량에 반영됩니다.
-- Python 서버를 종료했다가 다시 실행하면 Unity가 자동으로 재접속합니다.
-
-## 다음 단계
-
-현재 구현은 직선 도로의 고정 X 좌표를 기준으로 하는 1차 동작 검증입니다.
-다음에는 목표 속도 제어(PID), 단계적 감속, 실제 갓길 경로점 기반 조향을
-결합합니다.
+- 차량이 움직이지 않으면 WheelCollider 4개 참조, Rigidbody `Is Kinematic`, 바퀴와 노면 접촉을 확인합니다.
+- UI 클릭이 안 되면 Scene의 `EventSystem`과 Canvas의 `GraphicRaycaster`를 확인합니다.
+- Python이 다른 컴퓨터라면 `PythonTcpBridge > Host`를 Python 컴퓨터 IP로 바꿉니다.
+- 재질이 분홍색이면 생성된 Material의 Shader를 프로젝트 렌더 파이프라인에 맞는 Lit/Standard로 변경합니다.

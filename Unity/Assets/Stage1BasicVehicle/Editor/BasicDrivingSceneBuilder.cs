@@ -1,7 +1,13 @@
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.SceneManagement;
+using UnityEngine.UI;
+
+#if ENABLE_INPUT_SYSTEM
+using UnityEngine.InputSystem.UI;
+#endif
 
 public static class BasicDrivingSceneBuilder
 {
@@ -12,7 +18,8 @@ public static class BasicDrivingSceneBuilder
     [MenuItem("Tools/Emergency Driving Demo/Create Stage 1 Scene")]
     public static void CreateStage1Scene()
     {
-        if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
+        if (!Application.isBatchMode
+            && !EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
         {
             return;
         }
@@ -51,19 +58,26 @@ public static class BasicDrivingSceneBuilder
             new Color(0.035f, 0.035f, 0.035f)
         );
 
-        CreateEnvironment(roadMaterial, shoulderMaterial, lineMaterial);
+        EndlessRoadController roadController = CreateEnvironment(
+            roadMaterial,
+            shoulderMaterial,
+            lineMaterial
+        );
         BasicWheelVehicleController vehicle = CreateVehicle(
             bodyMaterial,
             windowMaterial,
             wheelMaterial
         );
+        roadController.vehicle = vehicle.transform;
         UnityTcpVehicleBridge tcpBridge = CreateTcpBridge(vehicle);
         CreateCamera(vehicle.transform);
         CreateLighting();
+        CreateDriverStateUI(tcpBridge);
 
         BasicVehicleHUD hud = new GameObject("VehicleHUD").AddComponent<BasicVehicleHUD>();
         hud.vehicle = vehicle;
         hud.tcpBridge = tcpBridge;
+        hud.cruiseController = vehicle.cruiseController;
 
         string scenePath = SceneFolder + "/BasicDrivingStage1.unity";
         EditorSceneManager.SaveScene(scene, scenePath);
@@ -73,11 +87,14 @@ public static class BasicDrivingSceneBuilder
         Selection.activeGameObject = vehicle.gameObject;
         EditorGUIUtility.PingObject(vehicle.gameObject);
 
-        EditorUtility.DisplayDialog(
-            "Stage 1 Scene Created",
-            "기본 도로, 갓길, WheelCollider 차량, 추적 카메라와 HUD를 생성했습니다.\n\nPlay 후 W/S, A/D, Space, R 키를 사용하세요.",
-            "확인"
-        );
+        if (!Application.isBatchMode)
+        {
+            EditorUtility.DisplayDialog(
+                "Stage 1 Scene Created",
+                "정속주행 차량, 재활용 도로 4개, TCP, 경고 UI를 생성했습니다.\n\nPlay하면 60km/h 정속주행을 시작합니다. C: Cruise, M: 모드, R: 초기화",
+                "확인"
+            );
+        }
     }
 
     private static UnityTcpVehicleBridge CreateTcpBridge(
@@ -94,68 +111,72 @@ public static class BasicDrivingSceneBuilder
         return bridge;
     }
 
-    private static void CreateEnvironment(
+    private static EndlessRoadController CreateEnvironment(
         Material roadMaterial,
         Material shoulderMaterial,
         Material lineMaterial
     )
     {
         GameObject environment = new GameObject("Environment");
+        const int segmentCount = 4;
+        const float segmentLength = 100f;
+        Transform[] segments = new Transform[segmentCount];
 
-        // 일반 도로: x=-6~3, 갓길: x=3~6
-        CreateCube(
-            "MainRoad",
-            new Vector3(-1.5f, -0.1f, 180f),
-            new Vector3(9f, 0.2f, 400f),
-            roadMaterial,
-            environment.transform,
-            true
-        );
-        CreateCube(
-            "Shoulder",
-            new Vector3(4.5f, -0.1f, 180f),
-            new Vector3(3f, 0.2f, 400f),
-            shoulderMaterial,
-            environment.transform,
-            true
-        );
-
-        CreateRoadLine("LeftEdge", -5.9f, 180f, 400f, lineMaterial, environment.transform);
-        CreateRoadLine("ShoulderBoundary", 3f, 180f, 400f, lineMaterial, environment.transform);
-        CreateRoadLine("RightEdge", 5.9f, 180f, 400f, lineMaterial, environment.transform);
-
-        // 두 차선을 구분하는 점선입니다.
-        for (float z = -16f; z <= 376f; z += 10f)
+        for (int index = 0; index < segmentCount; index++)
         {
-            CreateCube(
-                "LaneDash",
-                new Vector3(-1.5f, 0.012f, z),
-                new Vector3(0.12f, 0.025f, 5f),
-                lineMaterial,
-                environment.transform,
-                false
+            GameObject segment = new GameObject($"RoadSegment_{index}");
+            segment.transform.SetParent(environment.transform, false);
+            segment.transform.position = new Vector3(
+                0f,
+                0f,
+                -50f + index * segmentLength
             );
+            segments[index] = segment.transform;
+
+            // 일반 도로 x=-6~3, 갓길 x=3~6. 모든 좌표는 세그먼트 로컬 좌표입니다.
+            CreateCube(
+                "MainRoad",
+                new Vector3(-1.5f, -0.1f, 0f),
+                new Vector3(9f, 0.2f, segmentLength),
+                roadMaterial,
+                segment.transform,
+                true,
+                true
+            );
+            CreateCube(
+                "Shoulder",
+                new Vector3(4.5f, -0.1f, 0f),
+                new Vector3(3f, 0.2f, segmentLength),
+                shoulderMaterial,
+                segment.transform,
+                true,
+                true
+            );
+
+            CreateSegmentLine("LeftEdge", -5.9f, segmentLength, lineMaterial, segment.transform);
+            CreateSegmentLine("ShoulderBoundary", 3f, segmentLength, lineMaterial, segment.transform);
+            CreateSegmentLine("RightEdge", 5.9f, segmentLength, lineMaterial, segment.transform);
+
+            for (float localZ = -45f; localZ <= 45f; localZ += 10f)
+            {
+                CreateCube(
+                    "LaneDash",
+                    new Vector3(-1.5f, 0.012f, localZ),
+                    new Vector3(0.12f, 0.025f, 5f),
+                    lineMaterial,
+                    segment.transform,
+                    false,
+                    true
+                );
+            }
         }
 
-        // 멀리서도 갓길 영역을 알아볼 수 있는 간단한 표지입니다.
-        GameObject sign = CreateCube(
-            "ShoulderSign",
-            new Vector3(4.5f, 1.2f, 35f),
-            new Vector3(1.8f, 1.2f, 0.12f),
-            lineMaterial,
-            environment.transform,
-            false
-        );
-        TextMesh text = new GameObject("Label").AddComponent<TextMesh>();
-        text.transform.SetParent(sign.transform, false);
-        text.transform.localPosition = new Vector3(0f, 0f, -0.07f);
-        text.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
-        text.text = "SHOULDER";
-        text.anchor = TextAnchor.MiddleCenter;
-        text.alignment = TextAlignment.Center;
-        text.characterSize = 0.16f;
-        text.fontSize = 48;
-        text.color = Color.black;
+        EndlessRoadController controller =
+            environment.AddComponent<EndlessRoadController>();
+        controller.roadSegments = segments;
+        controller.segmentLength = segmentLength;
+        controller.recycleBehindDistance = 20f;
+        return controller;
     }
 
     private static BasicWheelVehicleController CreateVehicle(
@@ -220,6 +241,13 @@ public static class BasicDrivingSceneBuilder
         controller.rearLeftVisual = rearLeftVisual;
         controller.rearRightVisual = rearRightVisual;
 
+        CruiseControlController cruise =
+            vehicle.AddComponent<CruiseControlController>();
+        cruise.cruiseEnabled = true;
+        cruise.targetSpeedKph = 60f;
+        cruise.speedDeadbandKph = 1.5f;
+        controller.cruiseController = cruise;
+
         EmergencyPullOverController emergency =
             vehicle.AddComponent<EmergencyPullOverController>();
         emergency.vehicle = controller;
@@ -227,6 +255,152 @@ public static class BasicDrivingSceneBuilder
         emergency.roadHeadingDegrees = 0f;
 
         return controller;
+    }
+
+    private static void CreateDriverStateUI(UnityTcpVehicleBridge tcpBridge)
+    {
+        GameObject canvasObject = new GameObject("DriverStateCanvas");
+        Canvas canvas = canvasObject.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 20;
+
+        CanvasScaler scaler = canvasObject.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920f, 1080f);
+        scaler.matchWidthOrHeight = 0.5f;
+        canvasObject.AddComponent<GraphicRaycaster>();
+
+        Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+
+        GameObject warningPanel = CreateUiPanel(
+            "DriverWarningPanel",
+            canvasObject.transform,
+            new Color(0.12f, 0.12f, 0.12f, 0.96f),
+            new Vector2(620f, 250f),
+            new Vector2(0f, 30f)
+        );
+        Text warningText = CreateUiText(
+            "WarningMessage",
+            warningPanel.transform,
+            font,
+            "운전자 상태 경고",
+            34,
+            TextAnchor.MiddleCenter,
+            new Vector2(560f, 100f),
+            new Vector2(0f, 45f)
+        );
+        warningText.color = new Color(1f, 0.84f, 0.25f);
+
+        GameObject buttonObject = CreateUiPanel(
+            "AcknowledgeButton",
+            warningPanel.transform,
+            new Color(0.92f, 0.58f, 0.08f, 1f),
+            new Vector2(220f, 72f),
+            new Vector2(0f, -65f)
+        );
+        Button acknowledgeButton = buttonObject.AddComponent<Button>();
+        acknowledgeButton.targetGraphic = buttonObject.GetComponent<Image>();
+        Text buttonText = CreateUiText(
+            "Label",
+            buttonObject.transform,
+            font,
+            "주의",
+            30,
+            TextAnchor.MiddleCenter,
+            new Vector2(220f, 72f),
+            Vector2.zero
+        );
+        buttonText.color = Color.black;
+
+        GameObject emergencyPanel = CreateUiPanel(
+            "EmergencyPanel",
+            canvasObject.transform,
+            new Color(0.62f, 0.04f, 0.04f, 0.96f),
+            new Vector2(720f, 110f),
+            new Vector2(0f, 420f)
+        );
+        Text emergencyText = CreateUiText(
+            "EmergencyMessage",
+            emergencyPanel.transform,
+            font,
+            "비상 상태 감지 · 갓길 정차 중",
+            36,
+            TextAnchor.MiddleCenter,
+            new Vector2(680f, 90f),
+            Vector2.zero
+        );
+        emergencyText.color = Color.white;
+
+        DriverStateWarningUI warningUI =
+            canvasObject.AddComponent<DriverStateWarningUI>();
+        warningUI.tcpBridge = tcpBridge;
+        warningUI.warningPanel = warningPanel;
+        warningUI.warningText = warningText;
+        warningUI.acknowledgeButton = acknowledgeButton;
+        warningUI.emergencyPanel = emergencyPanel;
+        warningUI.emergencyController = tcpBridge.emergencyController;
+
+        warningPanel.SetActive(false);
+        emergencyPanel.SetActive(false);
+
+        GameObject eventSystemObject = new GameObject("EventSystem");
+        eventSystemObject.AddComponent<EventSystem>();
+#if ENABLE_INPUT_SYSTEM
+        eventSystemObject.AddComponent<InputSystemUIInputModule>();
+#else
+        eventSystemObject.AddComponent<StandaloneInputModule>();
+#endif
+    }
+
+    private static GameObject CreateUiPanel(
+        string name,
+        Transform parent,
+        Color color,
+        Vector2 size,
+        Vector2 anchoredPosition
+    )
+    {
+        GameObject panel = new GameObject(name, typeof(RectTransform));
+        panel.transform.SetParent(parent, false);
+        RectTransform rect = panel.GetComponent<RectTransform>();
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.sizeDelta = size;
+        rect.anchoredPosition = anchoredPosition;
+        Image image = panel.AddComponent<Image>();
+        image.color = color;
+        return panel;
+    }
+
+    private static Text CreateUiText(
+        string name,
+        Transform parent,
+        Font font,
+        string value,
+        int fontSize,
+        TextAnchor alignment,
+        Vector2 size,
+        Vector2 anchoredPosition
+    )
+    {
+        GameObject textObject = new GameObject(name, typeof(RectTransform));
+        textObject.transform.SetParent(parent, false);
+        RectTransform rect = textObject.GetComponent<RectTransform>();
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.sizeDelta = size;
+        rect.anchoredPosition = anchoredPosition;
+
+        Text text = textObject.AddComponent<Text>();
+        text.font = font;
+        text.text = value;
+        text.fontSize = fontSize;
+        text.alignment = alignment;
+        text.horizontalOverflow = HorizontalWrapMode.Wrap;
+        text.verticalOverflow = VerticalWrapMode.Truncate;
+        return text;
     }
 
     private static WheelCollider CreateWheelCollider(
@@ -311,10 +485,9 @@ public static class BasicDrivingSceneBuilder
         RenderSettings.ambientLight = new Color(0.55f, 0.55f, 0.55f);
     }
 
-    private static void CreateRoadLine(
+    private static void CreateSegmentLine(
         string name,
         float x,
-        float z,
         float length,
         Material material,
         Transform parent
@@ -322,11 +495,12 @@ public static class BasicDrivingSceneBuilder
     {
         CreateCube(
             name,
-            new Vector3(x, 0.012f, z),
+            new Vector3(x, 0.012f, 0f),
             new Vector3(0.14f, 0.025f, length),
             material,
             parent,
-            false
+            false,
+            true
         );
     }
 

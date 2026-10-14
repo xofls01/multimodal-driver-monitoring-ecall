@@ -51,6 +51,7 @@ public class VehicleControlPacket
     public bool hazard;
     public bool ecall;
     public bool remote_enabled = true;
+    public string control_mode;
     public string driver_state;
 }
 
@@ -132,7 +133,7 @@ public class UnityTcpVehicleBridge : MonoBehaviour
             steering = vehicle.CurrentSteeringInput,
             throttle = vehicle.CurrentThrottleInput,
             brake = vehicle.CurrentBrakeInput,
-            control_mode = vehicle.controlMode.ToString(),
+            control_mode = vehicle.EffectiveControlMode,
             hazard = vehicle.RemoteHazard,
             ecall = vehicle.RemoteEcall,
             driver_state = CurrentDriverState,
@@ -168,13 +169,14 @@ public class UnityTcpVehicleBridge : MonoBehaviour
 
             LatestCommand = command;
 
-            string driverState = string.IsNullOrWhiteSpace(command.driver_state)
-                ? "N"
-                : command.driver_state.Trim().ToUpperInvariant();
-            if (driverState == "N" || driverState == "D"
-                || driverState == "A" || driverState == "E")
+            if (!string.IsNullOrWhiteSpace(command.driver_state))
             {
-                CurrentDriverState = driverState;
+                string driverState = command.driver_state.Trim().ToUpperInvariant();
+                if (driverState == "N" || driverState == "D"
+                    || driverState == "A" || driverState == "E")
+                {
+                    CurrentDriverState = driverState;
+                }
             }
 
             if (CurrentDriverState == "E" && emergencyController != null)
@@ -182,20 +184,98 @@ public class UnityTcpVehicleBridge : MonoBehaviour
                 emergencyController.TriggerEmergency();
             }
 
-            if (command.remote_enabled)
+            bool hasControlMode = json.IndexOf(
+                "\"control_mode\"",
+                StringComparison.Ordinal
+            ) >= 0;
+            bool hasLegacyRemoteEnabled = json.IndexOf(
+                "\"remote_enabled\"",
+                StringComparison.Ordinal
+            ) >= 0;
+            ApplyControlMode(command, hasControlMode, hasLegacyRemoteEnabled);
+        }
+    }
+
+    private void ApplyControlMode(
+        VehicleControlPacket command,
+        bool hasControlMode,
+        bool hasLegacyRemoteEnabled
+    )
+    {
+        if (vehicle == null)
+        {
+            return;
+        }
+
+        CruiseControlController cruise = vehicle.cruiseController;
+        string requestedMode = !hasControlMode
+            || string.IsNullOrWhiteSpace(command.control_mode)
+            ? string.Empty
+            : command.control_mode.Trim().ToLowerInvariant();
+
+        if (requestedMode == "remote")
+        {
+            vehicle.SetRemoteControl(
+                command.throttle,
+                command.brake,
+                command.steering,
+                command.hazard,
+                command.ecall,
+                true
+            );
+            return;
+        }
+
+        if (requestedMode == "cruise")
+        {
+            vehicle.SetManualMode();
+            if (cruise != null)
             {
-                vehicle.SetRemoteControl(
-                    command.throttle,
-                    command.brake,
-                    command.steering,
-                    command.hazard,
-                    command.ecall,
-                    enableRemoteModeOnCommand
-                );
+                cruise.SetEnabled(true);
             }
-            else
+            return;
+        }
+
+        if (requestedMode == "manual")
+        {
+            vehicle.SetManualMode();
+            if (cruise != null)
             {
-                vehicle.SetManualMode();
+                cruise.SetEnabled(false);
+            }
+            return;
+        }
+
+        if (hasControlMode)
+        {
+            Debug.LogWarning($"Unknown TCP control_mode: {command.control_mode}");
+            return;
+        }
+
+        // 상태만 담긴 패킷은 현재 일반 제어 모드를 그대로 둡니다.
+        if (!hasLegacyRemoteEnabled)
+        {
+            return;
+        }
+
+        // control_mode가 없는 기존 송신기는 remote_enabled 의미를 그대로 사용합니다.
+        if (command.remote_enabled)
+        {
+            vehicle.SetRemoteControl(
+                command.throttle,
+                command.brake,
+                command.steering,
+                command.hazard,
+                command.ecall,
+                enableRemoteModeOnCommand
+            );
+        }
+        else
+        {
+            vehicle.SetManualMode();
+            if (cruise != null)
+            {
+                cruise.SetEnabled(false);
             }
         }
     }
