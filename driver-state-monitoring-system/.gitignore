@@ -1,0 +1,44 @@
+# Environments and caches
+.venv/
+venv/
+.uv-cache/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+.DS_Store
+.vscode/
+# The user's local clone is not part of this package.
+capstone-upload/
+
+# Local data and generated artifacts
+outputs/
+data/
+datasets/
+backups/
+runs/
+*.mp4
+*.mov
+*.m4v
+*.avi
+*.mkv
+*.webm
+*.jpg
+*.jpeg
+*.png
+*.jsonl
+
+# Only the exact runtime models are part of the reproducible package.
+*.pt
+*.pth
+*.onnx
+*.tflite
+*.task
+!models/yolo26n.pt
+!models/yolo26n-pose.pt
+
+# Local credentials
+.env
+.env.*
+!.env.example
+credentials*.json
+token*.json

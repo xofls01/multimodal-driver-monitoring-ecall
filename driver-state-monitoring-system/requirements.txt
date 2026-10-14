@@ -1,0 +1,11 @@
+mediapipe==0.10.21
+ultralytics==8.4.174
+numpy==1.26.4
+opencv-python==4.11.0.86
+opencv-contrib-python==4.11.0.86
+jax==0.4.35
+jaxlib==0.4.35
+torch==2.14.1
+torchvision==0.29.1
+imageio-ffmpeg==0.6.0
+

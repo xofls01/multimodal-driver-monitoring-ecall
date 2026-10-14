@@ -1,0 +1,9 @@
+{
+  "extensions": [".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"],
+  "sample_interval_seconds": 3.0,
+  "contact_sheet_columns": 3,
+  "tile_width": 360,
+  "jpeg_quality": 92,
+  "full_decode": true
+}
+
