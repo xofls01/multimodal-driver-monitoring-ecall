@@ -36,6 +36,8 @@ public class VehicleStatePacket
     public string control_mode;
     public bool hazard;
     public bool ecall;
+    public string driver_state;
+    public string emergency_phase;
 }
 
 [Serializable]
@@ -49,6 +51,7 @@ public class VehicleControlPacket
     public bool hazard;
     public bool ecall;
     public bool remote_enabled = true;
+    public string driver_state;
 }
 
 public class UnityTcpVehicleBridge : MonoBehaviour
@@ -61,12 +64,14 @@ public class UnityTcpVehicleBridge : MonoBehaviour
 
     [Header("Vehicle State Transmission")]
     public BasicWheelVehicleController vehicle;
+    public EmergencyPullOverController emergencyController;
     [Range(1f, 60f)] public float stateSendRateHz = 20f;
     public bool enableRemoteModeOnCommand = true;
 
     public bool IsConnected { get; private set; }
     public string ConnectionStatus { get; private set; } = "Stopped";
     public VehicleControlPacket LatestCommand { get; private set; }
+    public string CurrentDriverState { get; private set; } = "N";
 
     private readonly ConcurrentQueue<string> incomingLines =
         new ConcurrentQueue<string>();
@@ -81,6 +86,11 @@ public class UnityTcpVehicleBridge : MonoBehaviour
 
     private void Start()
     {
+        if (emergencyController == null && vehicle != null)
+        {
+            emergencyController = vehicle.GetComponent<EmergencyPullOverController>();
+        }
+
         Application.runInBackground = true;
         running = true;
         networkThread = new Thread(ConnectionLoop)
@@ -124,7 +134,11 @@ public class UnityTcpVehicleBridge : MonoBehaviour
             brake = vehicle.CurrentBrakeInput,
             control_mode = vehicle.controlMode.ToString(),
             hazard = vehicle.RemoteHazard,
-            ecall = vehicle.RemoteEcall
+            ecall = vehicle.RemoteEcall,
+            driver_state = CurrentDriverState,
+            emergency_phase = emergencyController == null
+                ? "Unavailable"
+                : emergencyController.Phase.ToString()
         };
 
         return JsonUtility.ToJson(packet);
@@ -153,6 +167,20 @@ public class UnityTcpVehicleBridge : MonoBehaviour
             }
 
             LatestCommand = command;
+
+            string driverState = string.IsNullOrWhiteSpace(command.driver_state)
+                ? "N"
+                : command.driver_state.Trim().ToUpperInvariant();
+            if (driverState == "N" || driverState == "D"
+                || driverState == "A" || driverState == "E")
+            {
+                CurrentDriverState = driverState;
+            }
+
+            if (CurrentDriverState == "E" && emergencyController != null)
+            {
+                emergencyController.TriggerEmergency();
+            }
 
             if (command.remote_enabled)
             {

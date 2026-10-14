@@ -26,7 +26,9 @@ TCP는 메시지 경계를 보장하지 않으므로 수신 측에서는 줄바�
   "brake": 0.0,
   "control_mode": "Remote",
   "hazard": false,
-  "ecall": false
+  "ecall": false,
+  "driver_state": "N",
+  "emergency_phase": "Idle"
 }
 ```
 
@@ -41,7 +43,8 @@ TCP는 메시지 경계를 보장하지 않으므로 수신 측에서는 줄바�
   "steering": 0.15,
   "hazard": false,
   "ecall": false,
-  "remote_enabled": true
+  "remote_enabled": true,
+  "driver_state": "N"
 }
 ```
 
@@ -53,6 +56,30 @@ TCP는 메시지 경계를 보장하지 않으므로 수신 측에서는 줄바�
 | `hazard` | Boolean | 비상등 상태 |
 | `ecall` | Boolean | e-Call 상태 |
 | `remote_enabled` | Boolean | `false`이면 Unity 키보드 제어로 복귀 |
+| `driver_state` | `N`, `D`, `A`, `E` | Python 모델이 예측한 운전자 상태 |
+
+## 운전자 상태 코드
+
+| 코드 | 의미 | 현재 Unity 동작 |
+|---|---|---|
+| `N` | Normal | 상태 표시, 일반 제어 유지 |
+| `D` | Drowsiness | 상태 표시, 일반 제어 유지 |
+| `A` | Attention | 상태 표시, 일반 제어 유지 |
+| `E` | Emergency | 비상등 → 감속 → 갓길 이동 → 정차 → e-Call 상태 활성화 |
+
+`E`가 한 번 수신되면 비상 정차 과정은 Unity에서 잠깁니다. 모델의 다음
+예측이 순간적으로 다른 값으로 바뀌어도 동작을 중단하지 않습니다. 시험을
+다시 시작할 때는 Python에서 `state N`을 보낸 뒤 Unity에서 `R`을 누릅니다.
+
+`emergency_phase`는 다음 중 하나입니다.
+
+```text
+Idle
+SignalAndSlow
+MoveToShoulder
+StraightenAndBrake
+Stopped
+```
 
 ## 안전 동작
 

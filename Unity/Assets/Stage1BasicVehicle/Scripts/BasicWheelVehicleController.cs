@@ -46,6 +46,7 @@ public class BasicWheelVehicleController : MonoBehaviour
     public float CurrentBrakeInput { get; private set; }
     public bool RemoteHazard { get; private set; }
     public bool RemoteEcall { get; private set; }
+    public bool EmergencyOverrideActive { get; private set; }
     public bool IsRemoteCommandFresh
     {
         get
@@ -63,6 +64,9 @@ public class BasicWheelVehicleController : MonoBehaviour
     private float remoteThrottleInput;
     private float remoteBrakeInput;
     private float remoteSteeringInput;
+    private float emergencyThrottleInput;
+    private float emergencyBrakeInput;
+    private float emergencySteeringInput;
     private float lastRemoteCommandTime = -1f;
     private Vector3 initialPosition;
     private Quaternion initialRotation;
@@ -100,11 +104,14 @@ public class BasicWheelVehicleController : MonoBehaviour
         float signedForwardSpeedKph =
             Vector3.Dot(transform.forward, vehicleBody.velocity) * 3.6f;
 
+        bool useEmergencyControl = EmergencyOverrideActive;
         bool useRemoteControl = controlMode == VehicleControlMode.Remote;
         bool remoteCommandFresh = IsRemoteCommandFresh;
-        float requestedSteering = useRemoteControl && remoteCommandFresh
-            ? remoteSteeringInput
-            : useRemoteControl ? 0f : steeringInput;
+        float requestedSteering = useEmergencyControl
+            ? emergencySteeringInput
+            : useRemoteControl && remoteCommandFresh
+                ? remoteSteeringInput
+                : useRemoteControl ? 0f : steeringInput;
 
         CurrentSteeringInput = Mathf.MoveTowards(
             CurrentSteeringInput,
@@ -123,7 +130,15 @@ public class BasicWheelVehicleController : MonoBehaviour
         float motorTorque = 0f;
         float brakeTorque = 0f;
 
-        if (useRemoteControl)
+        if (useEmergencyControl)
+        {
+            if (signedForwardSpeedKph < maxSpeedKph)
+            {
+                motorTorque = emergencyThrottleInput * maxMotorTorque;
+            }
+            brakeTorque = emergencyBrakeInput * maxBrakeTorque;
+        }
+        else if (useRemoteControl)
         {
             if (remoteCommandFresh)
             {
@@ -292,8 +307,42 @@ public class BasicWheelVehicleController : MonoBehaviour
         RemoteEcall = false;
     }
 
+    public void SetEmergencyControl(
+        float throttle,
+        float brake,
+        float steering,
+        bool hazard,
+        bool ecall
+    )
+    {
+        EmergencyOverrideActive = true;
+        emergencyThrottleInput = Mathf.Clamp01(throttle);
+        emergencyBrakeInput = Mathf.Clamp01(brake);
+        emergencySteeringInput = Mathf.Clamp(steering, -1f, 1f);
+        RemoteHazard = hazard;
+        RemoteEcall = ecall;
+        controlMode = VehicleControlMode.Remote;
+    }
+
+    public void ClearEmergencyControl()
+    {
+        EmergencyOverrideActive = false;
+        emergencyThrottleInput = 0f;
+        emergencyBrakeInput = 0f;
+        emergencySteeringInput = 0f;
+        RemoteHazard = false;
+        RemoteEcall = false;
+    }
+
     public void ResetVehicle()
     {
+        EmergencyPullOverController emergencyController =
+            GetComponent<EmergencyPullOverController>();
+        if (emergencyController != null)
+        {
+            emergencyController.ResetEmergency();
+        }
+
         transform.SetPositionAndRotation(initialPosition, initialRotation);
         vehicleBody.velocity = Vector3.zero;
         vehicleBody.angularVelocity = Vector3.zero;

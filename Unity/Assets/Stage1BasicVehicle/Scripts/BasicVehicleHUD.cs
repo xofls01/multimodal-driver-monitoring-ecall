@@ -49,7 +49,7 @@ public class BasicVehicleHUD : MonoBehaviour
 
         Vector3 position = vehicle.transform.position;
 
-        GUI.Box(new Rect(16f, 16f, 420f, 228f), string.Empty);
+        GUI.Box(new Rect(16f, 16f, 460f, 286f), string.Empty);
         GUI.Label(new Rect(30f, 26f, 320f, 28f), "Stage 1 · Basic Vehicle", titleStyle);
         GUI.Label(
             new Rect(30f, 58f, 320f, 26f),
@@ -79,7 +79,24 @@ public class BasicVehicleHUD : MonoBehaviour
             valueStyle
         );
         GUI.Label(
-            new Rect(30f, 194f, 380f, 30f),
+            new Rect(30f, 188f, 420f, 26f),
+            tcpBridge == null
+                ? "운전자 상태  ?"
+                : $"운전자 상태  {tcpBridge.CurrentDriverState}",
+            valueStyle
+        );
+
+        EmergencyPullOverController emergency =
+            vehicle.GetComponent<EmergencyPullOverController>();
+        GUI.Label(
+            new Rect(30f, 214f, 420f, 26f),
+            emergency == null
+                ? "비상 정차  Controller 없음"
+                : $"비상 정차  {emergency.Phase}",
+            valueStyle
+        );
+        GUI.Label(
+            new Rect(30f, 252f, 420f, 30f),
             "W/S 가속·브레이크 · A/D 조향 · M 모드 · R 복귀",
             helpStyle
         );

@@ -87,6 +87,7 @@ public static class BasicDrivingSceneBuilder
         GameObject bridgeObject = new GameObject("PythonTcpBridge");
         UnityTcpVehicleBridge bridge = bridgeObject.AddComponent<UnityTcpVehicleBridge>();
         bridge.vehicle = vehicle;
+        bridge.emergencyController = vehicle.GetComponent<EmergencyPullOverController>();
         bridge.host = "127.0.0.1";
         bridge.port = 5001;
         bridge.stateSendRateHz = 20f;
@@ -218,6 +219,12 @@ public static class BasicDrivingSceneBuilder
         controller.frontRightVisual = frontRightVisual;
         controller.rearLeftVisual = rearLeftVisual;
         controller.rearRightVisual = rearRightVisual;
+
+        EmergencyPullOverController emergency =
+            vehicle.AddComponent<EmergencyPullOverController>();
+        emergency.vehicle = controller;
+        emergency.shoulderCenterX = 4.5f;
+        emergency.roadHeadingDegrees = 0f;
 
         return controller;
     }

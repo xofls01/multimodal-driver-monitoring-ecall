@@ -27,11 +27,15 @@ class ControlCommand:
     hazard: bool = False
     ecall: bool = False
     remote_enabled: bool = True
+    driver_state: str = "N"
 
     def clamp(self) -> None:
         self.throttle = min(1.0, max(0.0, self.throttle))
         self.brake = min(1.0, max(0.0, self.brake))
         self.steering = min(1.0, max(-1.0, self.steering))
+        self.driver_state = self.driver_state.strip().upper()
+        if self.driver_state not in {"N", "D", "A", "E"}:
+            raise ValueError("driver_state must be one of N, D, A, E")
 
 
 class SharedData:
@@ -47,6 +51,29 @@ class SharedData:
             for key, value in changes.items():
                 setattr(self.command, key, value)
             self.command.clamp()
+
+    def set_driver_state(self, predicted_state: str) -> None:
+        """모델의 N/D/A/E 예측값을 다음 TCP 제어 패킷에 반영합니다."""
+        state = predicted_state.strip().upper()
+        if state not in {"N", "D", "A", "E"}:
+            raise ValueError("운전자 상태는 N, D, A, E 중 하나여야 합니다.")
+
+        changes: dict[str, Any] = {
+            "driver_state": state,
+            "remote_enabled": True,
+        }
+        if state == "E":
+            # 실제 갓길 이동은 Unity의 비상 정차 상태 머신이 담당합니다.
+            changes.update(
+                throttle=0.0,
+                brake=0.0,
+                steering=0.0,
+                hazard=True,
+                ecall=False,
+            )
+        else:
+            changes.update(hazard=False, ecall=False)
+        self.update_command(**changes)
 
     def next_command_json(self) -> str:
         with self.lock:
@@ -155,7 +182,8 @@ def print_status(shared: SharedData) -> None:
         f"steering={command.steering:.2f} "
         f"hazard={command.hazard} "
         f"ecall={command.ecall} "
-        f"remote={command.remote_enabled}"
+        f"remote={command.remote_enabled} "
+        f"driver_state={command.driver_state}"
     )
 
     if state is None:
@@ -169,15 +197,17 @@ def print_status(shared: SharedData) -> None:
         f"position=({float(position.get('x', 0.0)):.1f}, "
         f"{float(position.get('z', 0.0)):.1f}) "
         f"heading={float(state.get('heading_deg', 0.0)):.1f}° "
-        f"mode={state.get('control_mode', '?')}"
+        f"mode={state.get('control_mode', '?')} "
+        f"driver_state={state.get('driver_state', '?')} "
+        f"emergency_phase={state.get('emergency_phase', '?')}"
     )
 
 
 def run_demo(shared: SharedData) -> None:
-    print("[DEMO] 3초 가속 → 1초 우측 조향 → 3초 감속")
+    print("[DEMO] 직진 가속 → 짧은 차선 변경 → 방향 정렬 → 감속")
     shared.update_command(
         remote_enabled=True,
-        throttle=0.45,
+        throttle=0.35,
         brake=0.0,
         steering=0.0,
         hazard=False,
@@ -185,6 +215,8 @@ def run_demo(shared: SharedData) -> None:
     )
     time.sleep(3.0)
     shared.update_command(steering=0.08)
+    time.sleep(1.0)
+    shared.update_command(steering=-0.08)
     time.sleep(1.0)
     shared.update_command(throttle=0.0, brake=0.65, steering=0.0, hazard=True)
     time.sleep(3.0)
@@ -204,6 +236,7 @@ def print_help() -> None:
   coast                           가속·브레이크 0
   hazard on|off                   비상등 상태
   ecall on|off                    e-Call 상태
+  state N|D|A|E                   모델 분류 상태 전송
   manual                          Unity 키보드 제어로 복귀
   remote                          Python 원격 제어 활성화
   demo                            기본 가속·조향·정차 시나리오
@@ -254,6 +287,9 @@ def console_loop(shared: SharedData) -> None:
                 shared.update_command(hazard=parts[1] == "on")
             elif command == "ecall" and len(parts) == 2:
                 shared.update_command(ecall=parts[1] == "on")
+            elif command == "state" and len(parts) == 2:
+                shared.set_driver_state(parts[1])
+                print(f"[MODEL] 운전자 상태를 {parts[1].upper()}로 설정했습니다.")
             elif command == "manual":
                 shared.update_command(
                     remote_enabled=False, throttle=0.0, brake=0.0, steering=0.0

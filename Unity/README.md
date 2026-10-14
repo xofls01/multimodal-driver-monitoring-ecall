@@ -1,4 +1,4 @@
-# Unity 차량 환경 및 Python 양방향 TCP 제어 · 1~2단계
+# Unity 차량 환경 · Python TCP · E 감지 갓길 정차
 
 이 묶음은 다음 환경을 자동으로 생성합니다.
 
@@ -11,6 +11,8 @@
 - Python과 Unity의 양방향 TCP JSON 통신
 - 연결 종료 후 Unity 자동 재접속
 - Python에서 가속·브레이크·조향·비상등·e-Call 명령 전송
+- Python 모델의 `N/D/A/E` 분류 결과 전송
+- `E` 수신 시 비상등·갓길 이동·자동 정차·e-Call 상태 활성화
 
 ## 설치
 
@@ -58,6 +60,10 @@ coast
 set 0.4 0 0.15
 hazard on
 ecall on
+state N
+state D
+state A
+state E
 status
 demo
 manual
@@ -71,6 +77,35 @@ remote
 ```
 
 Python이 다른 컴퓨터에서 실행될 경우 Unity의 `PythonTcpBridge` 오브젝트를 선택하고 `Host`를 Python 컴퓨터의 IP 주소로 변경합니다.
+
+## E 상태 갓길 정차 시험
+
+1. Python 서버와 Unity를 연결합니다.
+2. 차량을 일반 차선에서 전진시키거나 정지 상태로 둡니다.
+3. Python 터미널에 `state E`를 입력합니다.
+4. HUD에서 다음 단계가 차례로 바뀌는지 확인합니다.
+
+```text
+SignalAndSlow
+→ MoveToShoulder
+→ StraightenAndBrake
+→ Stopped
+```
+
+`Stopped`에 도달하면 브레이크가 유지되고 `hazard`, `ecall` 상태가
+활성화됩니다. 다시 시험하려면 Python에서 `state N`을 보낸 후 Unity에서
+`R`을 누릅니다.
+
+실제 모델 코드에서는 추론 결과를 얻은 위치에서 다음 한 줄을 호출합니다.
+
+```python
+shared.set_driver_state(predicted_label)  # predicted_label: N, D, A, E
+```
+
+현재 자동 조향은 Stage 1 직선 도로의 갓길 중앙인 월드 X 좌표 `4.5`를
+목표로 사용합니다. 다른 도로 또는 실제 차량 모델로 교체할 때는
+`PlayerVehicle > EmergencyPullOverController > Shoulder Center X`를 해당
+환경에 맞게 변경해야 합니다.
 
 ## 생성되는 주요 오브젝트
 
@@ -87,7 +122,8 @@ PlayerVehicle
 ├─ Body
 ├─ Cabin
 ├─ WheelCollider_FL/FR/RL/RR
-└─ WheelVisual_FL/FR/RL/RR
+├─ WheelVisual_FL/FR/RL/RR
+└─ EmergencyPullOverController
 
 Main Camera
 VehicleHUD
@@ -130,4 +166,6 @@ Directional Light
 
 ## 다음 단계
 
-2단계가 정상 동작하면 목표 속도를 유지하는 PID 기반 정속 주행 제어를 구현합니다.
+현재 구현은 직선 도로의 고정 X 좌표를 기준으로 하는 1차 동작 검증입니다.
+다음에는 목표 속도 제어(PID), 단계적 감속, 실제 갓길 경로점 기반 조향을
+결합합니다.
