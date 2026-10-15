@@ -7,7 +7,9 @@
 - Python의 `N/D/A/E` 상태 및 명시적 원격 운전 명령
 - 별도 스레드에서 실행되는 emergency/drowsiness/attention 시나리오
 - D/A 진입 시 터치 가능한 경고창과 1회 경고음
-- E 진입 시 비상 정차 상태 머신, 비상 UI, hazard/e-Call 상태
+- 딥 네이비 메탈릭 차체와 전면 다크/후면 레드 램프 베이스
+- 램프 베이스 위 전·후방 좌우 주황색 비상등 4개의 실시간 점멸 표시
+- E 진입 시 비상 정차 상태 머신, 비상 UI, 비상등 점멸, e-Call 상태
 
 ## 처음 적용하는 순서
 
@@ -50,7 +52,7 @@ deadband 내부      : throttle = 0, brake = 0
 
 ## 도로 세그먼트 재활용
 
-Scene Builder는 `RoadSegment_0`~`RoadSegment_3` 네 개만 만듭니다. 각 세그먼트에는 일반 도로 `X=-6~3`, 갓길 `X=3~6`, 갓길 중앙 `X=4.5`, 실선과 점선이 들어 있습니다.
+Scene Builder는 `RoadSegment_0`~`RoadSegment_3` 네 개만 만듭니다. 각 세그먼트에는 일반 도로 `X=-6~3`, 넓어진 갓길 `X=3~7`, 실선과 점선이 들어 있습니다. 정차 목표는 도로·갓길 콜라이더의 경계와 차량 차체·바퀴 폭을 읽어 양쪽 여유가 같도록 계산합니다. 기본 구성의 목표는 `X=5.0`입니다.
 
 차량보다 충분히 뒤로 간 가장 뒤 세그먼트를 현재 가장 앞 세그먼트 다음 위치로 옮깁니다. 런타임 `Instantiate`/`Destroy`가 없고 GameObject 수가 늘지 않습니다. R로 차량을 시작점에 되돌리면 도로도 초기 위치로 복귀합니다.
 
@@ -85,6 +87,8 @@ right
 center
 coast
 stop
+hazard on             # 현재 일반 제어 모드에서 비상등 점멸
+hazard off            # 비상등 끄기
 status
 help
 quit
@@ -114,14 +118,18 @@ quit
 
 1. `cruise`를 입력하고 `scenario emergency`를 실행합니다.
 2. N으로 10초 주행 후 E가 20Hz 패킷에 계속 포함됩니다.
-3. D/A 창이 닫히고 비상 UI가 나타납니다.
-4. HUD의 단계가 아래 순서로 바뀌며 차량이 X=4.5 부근에서 정차합니다.
+3. D/A 창이 닫히고 비상 UI가 나타나며 차량 전·후방 비상등이 즉시 깜빡입니다.
+4. 차량이 최소 약 55m 길이의 완만한 S자 경로를 따라 감속과 조향을 동시에 진행합니다. 진입 속도가 높으면 경로도 자동으로 길어집니다.
+5. 실제 횡속도를 반영해 갓길 중앙에 진입하고, 차체가 전방과 평행해진 뒤 정차합니다.
+6. HUD의 단계가 아래 순서로 바뀝니다.
 
 ```text
 SignalAndSlow -> MoveToShoulder -> StraightenAndBrake -> Stopped
 ```
 
-`Stopped`에서는 브레이크, `hazard=true`, `ecall=true`가 유지됩니다. 다시 시험하려면 Python에서 `state N`을 보낸 뒤 Unity에서 R을 누릅니다.
+`Stopped`에서는 브레이크, `hazard=true`, 비상등 점멸, `ecall=true`가 유지됩니다. 다시 시험하려면 Python에서 `state N`을 보낸 뒤 Unity에서 R을 누릅니다.
+
+비상 상황과 별개로 표시만 확인하려면 Python 콘솔에서 `hazard on`과 `hazard off`를 입력합니다. Cruise/Manual/Remote 어느 일반 제어 모드에서도 동작하며, E 비상 제어 중에는 안전상 외부 `hazard off`보다 비상 점멸이 우선합니다.
 
 ## 키보드 조작
 
@@ -140,9 +148,10 @@ Manual 운전을 하려면 `C`로 Cruise를 끄고 Manual 모드를 사용합니
 
 - `CruiseControlController`: 목표 속도, deadband, throttle/brake Kp, 최대 입력
 - `BasicWheelVehicleController`: 모터/브레이크 토크, 최대 속도, 조향각, Remote timeout
-- `EmergencyPullOverController`: 갓길 중앙 X, 신호 지연, 차선 변경 속도, 제동/조향 값
+- `EmergencyPullOverController`: 도로·갓길·차체 콜라이더 참조, 좌우 여유 거리, 전방 주시 거리, 제동/조향 값과 입력 변화율
 - `EndlessRoadController`: 세그먼트 길이, 후방 재활용 거리, 차량/세그먼트 참조
 - `DriverStateWarningUI`: 경고음 볼륨, 주파수, 길이와 Canvas 참조
+- `HazardLightController`: 전·후방 램프 Renderer 참조, 점멸 간격(기본 0.45초)
 - `UnityTcpVehicleBridge`: 서버 Host/Port, 상태 송신률
 
 ## 데이터 전체 흐름
@@ -154,7 +163,7 @@ Manual 운전을 하려면 `C`로 Cruise를 끄고 Manual 모드를 사용합니
   -> 20Hz NDJSON TCP
   -> UnityTcpVehicleBridge.CurrentDriverState
   -> D/A: DriverStateWarningUI
-  -> E: EmergencyPullOverController
+  -> E: EmergencyPullOverController -> HazardLightController
   -> BasicWheelVehicleController
   -> WheelCollider
 ```

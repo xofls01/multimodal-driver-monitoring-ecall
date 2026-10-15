@@ -229,6 +229,7 @@ public class UnityTcpVehicleBridge : MonoBehaviour
         if (requestedMode == "cruise")
         {
             vehicle.SetManualMode();
+            vehicle.SetAuxiliaryState(command.hazard, command.ecall);
             if (cruise != null)
             {
                 cruise.SetEnabled(true);
@@ -239,6 +240,7 @@ public class UnityTcpVehicleBridge : MonoBehaviour
         if (requestedMode == "manual")
         {
             vehicle.SetManualMode();
+            vehicle.SetAuxiliaryState(command.hazard, command.ecall);
             if (cruise != null)
             {
                 cruise.SetEnabled(false);

@@ -57,7 +57,7 @@ TCP는 패킷 경계를 보장하지 않으므로 양쪽 모두 줄바꿈까지 
 | `throttle` | 0.0~1.0 | Remote 가속 입력 |
 | `brake` | 0.0~1.0 | Remote 브레이크 입력 |
 | `steering` | -1.0~1.0 | Remote 조향, 음수 좌/양수 우 |
-| `hazard` | Boolean | Remote 비상등 상태 |
+| `hazard` | Boolean | 비상등 점멸 상태(일반 모드와 Remote 모드 모두 반영) |
 | `ecall` | Boolean | Remote e-Call 상태 |
 | `control_mode` | `cruise`, `remote`, `manual` | 명시적인 일반 제어 모드 |
 | `remote_enabled` | Boolean | `control_mode` 없는 구버전 패킷의 호환 필드 |
@@ -79,7 +79,7 @@ Python 기본 패킷은 `control_mode="cruise"`, `remote_enabled=false`입니다
 | `N` | Normal | 경고 없음, 선택된 일반 제어 유지 |
 | `D` | Drowsiness | D 최초 진입 시 경고창/비프 1회 |
 | `A` | Attention | A 최초 진입 시 경고창/비프 1회 |
-| `E` | Emergency | 비상 UI, 감속, 갓길 이동, 정렬, 정차, e-Call |
+| `E` | Emergency | 비상 UI, 비상등 점멸, 감속, 갓길 이동, 정렬, 정차, e-Call |
 
 E는 Unity에서 한 번 감지되면 다음 단계가 잠기며 이후 분류가 흔들려도 취소되거나 처음부터 재시작되지 않습니다.
 
@@ -91,7 +91,9 @@ Idle
 -> Stopped
 ```
 
-`Stopped`에서 `hazard=true`, `ecall=true`, 브레이크가 유지됩니다. 재시험은 `state N`을 전송한 뒤 Unity에서 R을 누릅니다.
+E가 감지되는 즉시 `hazard=true`가 잠기고 차량 전·후방 좌우 램프가 점멸합니다. `Stopped`에서도 `hazard=true`, `ecall=true`, 브레이크가 유지됩니다. 재시험은 `state N`을 전송한 뒤 Unity에서 R을 누릅니다.
+
+일반 상태에서는 Python 콘솔의 `hazard on`/`hazard off`로 점멸을 독립 시험할 수 있습니다. E 비상 제어가 활성화된 동안에는 수신 패킷의 `hazard=false`가 비상 점멸을 해제하지 않습니다.
 
 ## 연결 안전 동작
 

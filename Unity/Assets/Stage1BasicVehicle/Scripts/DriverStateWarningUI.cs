@@ -23,6 +23,8 @@ public class DriverStateWarningUI : MonoBehaviour
 
     private void Awake()
     {
+        EnsureAudioListener();
+
         audioSource = gameObject.GetComponent<AudioSource>();
         if (audioSource == null)
         {
@@ -30,6 +32,7 @@ public class DriverStateWarningUI : MonoBehaviour
         }
         audioSource.playOnAwake = false;
         audioSource.loop = false;
+        audioSource.spatialBlend = 0f;
 
         runtimeFont = Font.CreateDynamicFontFromOSFont(
             new[]
@@ -57,6 +60,33 @@ public class DriverStateWarningUI : MonoBehaviour
 
         SetActive(warningPanel, false);
         SetActive(emergencyPanel, false);
+    }
+
+    private static void EnsureAudioListener()
+    {
+        foreach (AudioListener listener in FindObjectsOfType<AudioListener>())
+        {
+            if (listener.isActiveAndEnabled)
+            {
+                return;
+            }
+        }
+
+        Camera mainCamera = Camera.main;
+        if (mainCamera == null)
+        {
+            return;
+        }
+
+        AudioListener cameraListener = mainCamera.GetComponent<AudioListener>();
+        if (cameraListener == null)
+        {
+            mainCamera.gameObject.AddComponent<AudioListener>();
+        }
+        else
+        {
+            cameraListener.enabled = true;
+        }
     }
 
     private void Update()

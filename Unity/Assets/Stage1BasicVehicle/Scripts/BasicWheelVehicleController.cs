@@ -368,6 +368,17 @@ public class BasicWheelVehicleController : MonoBehaviour
         }
     }
 
+    public void SetAuxiliaryState(bool hazard, bool ecall)
+    {
+        if (EmergencyOverrideActive)
+        {
+            return;
+        }
+
+        RemoteHazard = hazard;
+        RemoteEcall = ecall;
+    }
+
     public void SetEmergencyControl(
         float throttle,
         float brake,

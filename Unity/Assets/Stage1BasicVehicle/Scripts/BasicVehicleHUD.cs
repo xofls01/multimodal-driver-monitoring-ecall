@@ -5,6 +5,7 @@ public class BasicVehicleHUD : MonoBehaviour
     public BasicWheelVehicleController vehicle;
     public UnityTcpVehicleBridge tcpBridge;
     public CruiseControlController cruiseController;
+    public HazardLightController hazardLightController;
 
     private GUIStyle titleStyle;
     private GUIStyle valueStyle;
@@ -53,8 +54,12 @@ public class BasicVehicleHUD : MonoBehaviour
         {
             cruiseController = vehicle.cruiseController;
         }
+        if (hazardLightController == null)
+        {
+            hazardLightController = vehicle.GetComponent<HazardLightController>();
+        }
 
-        GUI.Box(new Rect(16f, 16f, 470f, 340f), string.Empty);
+        GUI.Box(new Rect(16f, 16f, 470f, 370f), string.Empty);
         GUI.Label(new Rect(30f, 26f, 320f, 28f), "Stage 1 · Basic Vehicle", titleStyle);
         GUI.Label(
             new Rect(30f, 58f, 320f, 26f),
@@ -109,7 +114,14 @@ public class BasicVehicleHUD : MonoBehaviour
             valueStyle
         );
         GUI.Label(
-            new Rect(30f, 278f, 430f, 48f),
+            new Rect(30f, 266f, 420f, 26f),
+            hazardLightController == null
+                ? "비상등  Controller 없음"
+                : $"비상등  {(hazardLightController.IsBlinking ? "점멸 중" : "OFF")}",
+            valueStyle
+        );
+        GUI.Label(
+            new Rect(30f, 304f, 430f, 48f),
             "C Cruise ON/OFF · M Manual/Remote · R 초기화\n"
                 + "Cruise OFF + Manual에서 W/S/A/D 키 사용",
             helpStyle

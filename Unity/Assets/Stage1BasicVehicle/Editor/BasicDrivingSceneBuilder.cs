@@ -47,8 +47,9 @@ public static class BasicDrivingSceneBuilder
         );
         Material bodyMaterial = GetOrCreateMaterial(
             MaterialFolder + "/VehicleBody.mat",
-            new Color(0.74f, 0.48f, 0.24f)
+            new Color(0.05f, 0.14f, 0.28f)
         );
+        ConfigureMetallicSurface(bodyMaterial, 0.55f, 0.55f);
         Material windowMaterial = GetOrCreateMaterial(
             MaterialFolder + "/VehicleWindow.mat",
             new Color(0.12f, 0.17f, 0.18f)
@@ -57,6 +58,16 @@ public static class BasicDrivingSceneBuilder
             MaterialFolder + "/Wheel.mat",
             new Color(0.035f, 0.035f, 0.035f)
         );
+        Material hazardLightMaterial = GetOrCreateMaterial(
+            MaterialFolder + "/HazardLight.mat",
+            new Color(1f, 0.32f, 0.02f)
+        );
+        ConfigureEmission(hazardLightMaterial, new Color(1f, 0.22f, 0.01f) * 3f);
+        Material rearLampBaseMaterial = GetOrCreateMaterial(
+            MaterialFolder + "/RearLampBase.mat",
+            new Color(0.35f, 0.015f, 0.01f)
+        );
+        ConfigureEmission(rearLampBaseMaterial, new Color(0.35f, 0.005f, 0.002f));
 
         EndlessRoadController roadController = CreateEnvironment(
             roadMaterial,
@@ -66,9 +77,18 @@ public static class BasicDrivingSceneBuilder
         BasicWheelVehicleController vehicle = CreateVehicle(
             bodyMaterial,
             windowMaterial,
-            wheelMaterial
+            wheelMaterial,
+            hazardLightMaterial,
+            rearLampBaseMaterial
         );
         roadController.vehicle = vehicle.transform;
+        EmergencyPullOverController emergency =
+            vehicle.GetComponent<EmergencyPullOverController>();
+        Transform firstRoadSegment = roadController.roadSegments[0];
+        emergency.mainRoadSurface =
+            firstRoadSegment.Find("MainRoad").GetComponent<BoxCollider>();
+        emergency.shoulderSurface =
+            firstRoadSegment.Find("Shoulder").GetComponent<BoxCollider>();
         UnityTcpVehicleBridge tcpBridge = CreateTcpBridge(vehicle);
         CreateCamera(vehicle.transform);
         CreateLighting();
@@ -78,6 +98,7 @@ public static class BasicDrivingSceneBuilder
         hud.vehicle = vehicle;
         hud.tcpBridge = tcpBridge;
         hud.cruiseController = vehicle.cruiseController;
+        hud.hazardLightController = vehicle.GetComponent<HazardLightController>();
 
         string scenePath = SceneFolder + "/BasicDrivingStage1.unity";
         EditorSceneManager.SaveScene(scene, scenePath);
@@ -91,7 +112,7 @@ public static class BasicDrivingSceneBuilder
         {
             EditorUtility.DisplayDialog(
                 "Stage 1 Scene Created",
-                "정속주행 차량, 재활용 도로 4개, TCP, 경고 UI를 생성했습니다.\n\nPlay하면 60km/h 정속주행을 시작합니다. C: Cruise, M: 모드, R: 초기화",
+                "정속주행 차량, 재활용 도로 4개, TCP, 경고 UI, 비상등을 생성했습니다.\n\nPlay하면 60km/h 정속주행을 시작합니다. C: Cruise, M: 모드, R: 초기화",
                 "확인"
             );
         }
@@ -133,7 +154,7 @@ public static class BasicDrivingSceneBuilder
             );
             segments[index] = segment.transform;
 
-            // 일반 도로 x=-6~3, 갓길 x=3~6. 모든 좌표는 세그먼트 로컬 좌표입니다.
+            // 일반 도로 x=-6~3, 갓길 x=3~7. 모든 좌표는 세그먼트 로컬 좌표입니다.
             CreateCube(
                 "MainRoad",
                 new Vector3(-1.5f, -0.1f, 0f),
@@ -145,8 +166,8 @@ public static class BasicDrivingSceneBuilder
             );
             CreateCube(
                 "Shoulder",
-                new Vector3(4.5f, -0.1f, 0f),
-                new Vector3(3f, 0.2f, segmentLength),
+                new Vector3(5f, -0.1f, 0f),
+                new Vector3(4f, 0.2f, segmentLength),
                 shoulderMaterial,
                 segment.transform,
                 true,
@@ -155,7 +176,7 @@ public static class BasicDrivingSceneBuilder
 
             CreateSegmentLine("LeftEdge", -5.9f, segmentLength, lineMaterial, segment.transform);
             CreateSegmentLine("ShoulderBoundary", 3f, segmentLength, lineMaterial, segment.transform);
-            CreateSegmentLine("RightEdge", 5.9f, segmentLength, lineMaterial, segment.transform);
+            CreateSegmentLine("RightEdge", 6.9f, segmentLength, lineMaterial, segment.transform);
 
             for (float localZ = -45f; localZ <= 45f; localZ += 10f)
             {
@@ -182,7 +203,9 @@ public static class BasicDrivingSceneBuilder
     private static BasicWheelVehicleController CreateVehicle(
         Material bodyMaterial,
         Material windowMaterial,
-        Material wheelMaterial
+        Material wheelMaterial,
+        Material hazardLightMaterial,
+        Material rearLampBaseMaterial
     )
     {
         GameObject vehicle = new GameObject("PlayerVehicle");
@@ -221,6 +244,59 @@ public static class BasicDrivingSceneBuilder
         );
         cabin.transform.localPosition = new Vector3(0f, 0.85f, -0.15f);
 
+        CreateLampBase(
+            vehicle.transform,
+            "FrontLampBase_FL",
+            new Vector3(-0.65f, 0.34f, 2.025f),
+            windowMaterial
+        );
+        CreateLampBase(
+            vehicle.transform,
+            "FrontLampBase_FR",
+            new Vector3(0.65f, 0.34f, 2.025f),
+            windowMaterial
+        );
+        CreateLampBase(
+            vehicle.transform,
+            "RearLampBase_RL",
+            new Vector3(-0.65f, 0.34f, -2.025f),
+            rearLampBaseMaterial
+        );
+        CreateLampBase(
+            vehicle.transform,
+            "RearLampBase_RR",
+            new Vector3(0.65f, 0.34f, -2.025f),
+            rearLampBaseMaterial
+        );
+
+        Renderer[] hazardLampRenderers =
+        {
+            CreateHazardLamp(
+                vehicle.transform,
+                "HazardLamp_FL",
+                new Vector3(-0.65f, 0.34f, 2.065f),
+                hazardLightMaterial
+            ),
+            CreateHazardLamp(
+                vehicle.transform,
+                "HazardLamp_FR",
+                new Vector3(0.65f, 0.34f, 2.065f),
+                hazardLightMaterial
+            ),
+            CreateHazardLamp(
+                vehicle.transform,
+                "HazardLamp_RL",
+                new Vector3(-0.65f, 0.34f, -2.065f),
+                hazardLightMaterial
+            ),
+            CreateHazardLamp(
+                vehicle.transform,
+                "HazardLamp_RR",
+                new Vector3(0.65f, 0.34f, -2.065f),
+                hazardLightMaterial
+            )
+        };
+
         WheelCollider frontLeft = CreateWheelCollider(vehicle.transform, "WheelCollider_FL", new Vector3(-0.85f, -0.05f, 1.35f));
         WheelCollider frontRight = CreateWheelCollider(vehicle.transform, "WheelCollider_FR", new Vector3(0.85f, -0.05f, 1.35f));
         WheelCollider rearLeft = CreateWheelCollider(vehicle.transform, "WheelCollider_RL", new Vector3(-0.85f, -0.05f, -1.35f));
@@ -251,8 +327,14 @@ public static class BasicDrivingSceneBuilder
         EmergencyPullOverController emergency =
             vehicle.AddComponent<EmergencyPullOverController>();
         emergency.vehicle = controller;
-        emergency.shoulderCenterX = 4.5f;
+        emergency.vehicleChassisCollider = chassisCollider;
         emergency.roadHeadingDegrees = 0f;
+
+        HazardLightController hazardLights =
+            vehicle.AddComponent<HazardLightController>();
+        hazardLights.vehicle = controller;
+        hazardLights.lampRenderers = hazardLampRenderers;
+        hazardLights.blinkIntervalSeconds = 0.45f;
 
         return controller;
     }
@@ -457,10 +539,48 @@ public static class BasicDrivingSceneBuilder
         return pivot.transform;
     }
 
+    private static Renderer CreateHazardLamp(
+        Transform parent,
+        string name,
+        Vector3 localPosition,
+        Material material
+    )
+    {
+        GameObject lamp = CreateCube(
+            name,
+            localPosition,
+            new Vector3(0.28f, 0.14f, 0.04f),
+            material,
+            parent,
+            false,
+            true
+        );
+        return lamp.GetComponent<Renderer>();
+    }
+
+    private static void CreateLampBase(
+        Transform parent,
+        string name,
+        Vector3 localPosition,
+        Material material
+    )
+    {
+        CreateCube(
+            name,
+            localPosition,
+            new Vector3(0.44f, 0.24f, 0.06f),
+            material,
+            parent,
+            false,
+            true
+        );
+    }
+
     private static void CreateCamera(Transform target)
     {
         GameObject cameraObject = new GameObject("Main Camera");
         Camera camera = cameraObject.AddComponent<Camera>();
+        cameraObject.AddComponent<AudioListener>();
         cameraObject.tag = "MainCamera";
         camera.fieldOfView = 62f;
         camera.nearClipPlane = 0.1f;
@@ -542,25 +662,63 @@ public static class BasicDrivingSceneBuilder
     private static Material GetOrCreateMaterial(string path, Color color)
     {
         Material material = AssetDatabase.LoadAssetAtPath<Material>(path);
-        if (material != null)
+        if (material == null)
         {
-            return material;
+            Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+            if (shader == null)
+            {
+                shader = Shader.Find("Standard");
+            }
+
+            material = new Material(shader);
+            AssetDatabase.CreateAsset(material, path);
         }
 
-        Shader shader = Shader.Find("Universal Render Pipeline/Lit");
-        if (shader == null)
-        {
-            shader = Shader.Find("Standard");
-        }
-
-        material = new Material(shader);
         material.color = color;
         if (material.HasProperty("_BaseColor"))
         {
             material.SetColor("_BaseColor", color);
         }
-        AssetDatabase.CreateAsset(material, path);
+        EditorUtility.SetDirty(material);
         return material;
+    }
+
+    private static void ConfigureMetallicSurface(
+        Material material,
+        float metallic,
+        float smoothness
+    )
+    {
+        if (material == null)
+        {
+            return;
+        }
+
+        if (material.HasProperty("_Metallic"))
+        {
+            material.SetFloat("_Metallic", metallic);
+        }
+        if (material.HasProperty("_Smoothness"))
+        {
+            material.SetFloat("_Smoothness", smoothness);
+        }
+        if (material.HasProperty("_Glossiness"))
+        {
+            material.SetFloat("_Glossiness", smoothness);
+        }
+        EditorUtility.SetDirty(material);
+    }
+
+    private static void ConfigureEmission(Material material, Color emissionColor)
+    {
+        if (material == null || !material.HasProperty("_EmissionColor"))
+        {
+            return;
+        }
+
+        material.SetColor("_EmissionColor", emissionColor);
+        material.EnableKeyword("_EMISSION");
+        EditorUtility.SetDirty(material);
     }
 
     private static void EnsureFolder(string path)
