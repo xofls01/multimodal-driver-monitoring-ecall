@@ -1,0 +1,6 @@
+[ WARN:0@0.525] global cap.cpp:204 open VIDEOIO(V4L2): backend is generally available but can't be used to capture by name
+Fatal Python error: _enter_buffered_busy: could not acquire lock for <_io.BufferedReader name='<stdin>'> at interpreter shutdown, possibly due to daemon threads
+Python runtime state: finalizing (tstate=0x0000000000a6c838)
+
+Current thread 0x0000007f96ee1ba0 (most recent call first):
+  <no Python frame>

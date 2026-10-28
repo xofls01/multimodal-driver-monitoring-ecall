@@ -1,0 +1,28 @@
+{
+  "host": "ecall.local",
+  "requested_resolution": [
+    1280,
+    720
+  ],
+  "nominal_video_fps": 30,
+  "start_laptop_utc": "2026-10-27T10:35:20.154002+00:00",
+  "timing": "Pi read-completion timestamps; USB/camera buffering delay is uncalibrated. No ADC or exposure timestamps.",
+  "video_timing": "AVI constant FPS. Use frames.csv times for alignment, not frame_index / FPS.",
+  "arduino": "ECG:<0..1023> TAB PPG:<0..1023>; no sample counter, so serial loss cannot be proven absent.",
+  "heart_rate": "Display-only PPG peak-interval estimate; raw CSV unchanged. Estimator range 35-200 BPM; not diagnostic.",
+  "status": "error",
+  "pi_origin_ns": 2111383757261,
+  "camera_reported": {
+    "type": "camera_info",
+    "width": 1280.0,
+    "height": 720.0,
+    "fps": 30.0,
+    "payload_bytes": 0
+  },
+  "error": "",
+  "counts": {
+    "bio": 127532,
+    "frame": 7328
+  },
+  "end_laptop_utc": "2026-10-27T10:44:42.346031+00:00"
+}

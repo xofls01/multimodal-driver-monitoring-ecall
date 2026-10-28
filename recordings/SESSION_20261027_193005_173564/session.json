@@ -1,0 +1,21 @@
+{
+  "host": "ecall.local",
+  "requested_resolution": [
+    1280,
+    720
+  ],
+  "nominal_video_fps": 30,
+  "start_laptop_utc": "2026-10-27T10:30:05.174093+00:00",
+  "timing": "Pi read-completion timestamps; USB/camera buffering delay is uncalibrated. No ADC or exposure timestamps.",
+  "video_timing": "AVI constant FPS. Use frames.csv times for alignment, not frame_index / FPS.",
+  "arduino": "ECG:<0..1023> TAB PPG:<0..1023>; no sample counter, so serial loss cannot be proven absent.",
+  "heart_rate": "Display-only PPG peak-interval estimate; raw CSV unchanged. Estimator range 35-200 BPM; not diagnostic.",
+  "status": "error",
+  "pi_origin_ns": 1803459142167,
+  "error": "Serial: [Errno 2] could not open port /dev/ttyUSB0: [Errno 2] No such file or directory: '/dev/ttyUSB0'; Camera: Cannot open camera",
+  "counts": {
+    "bio": 0,
+    "frame": 0
+  },
+  "end_laptop_utc": "2026-10-27T10:30:19.097849+00:00"
+}
