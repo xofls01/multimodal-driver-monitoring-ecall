@@ -4,7 +4,6 @@ import csv
 import getpass
 import json
 import queue
-import re
 import shlex
 import struct
 import threading
@@ -13,14 +12,8 @@ from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 
-PATTERN = re.compile(r"ECG:(\d+)\s+PPG:(\d+)")
-
-def parse_sample(line):
-    match = PATTERN.fullmatch(line.strip())
-    if not match:
-        return None
-    values = tuple(map(int, match.groups()))
-    return values if all(0 <= v <= 1023 for v in values) else None
+ADC_REF_MV = 5000  # Nano/Uno default analog reference (USB supply)
+MAINS_HZ = 60  # Korea
 
 # Sent as an in-memory command. No script or recordings written on the Pi.
 REMOTE = r'''
@@ -57,13 +50,14 @@ def bio():
                 ts = stamp()
                 match = pattern.fullmatch(raw.decode('ascii', errors='replace').strip())
                 if match:
-                    ecg, ppg = map(int, match.groups())
-                    if 0 <= ecg <= 1023 and 0 <= ppg <= 1023:
-                        emit(dict(type='bio', index=index, ecg=ecg, ppg=ppg, **ts))
+                    # PPG field is ignored: sensor disconnected, floating A1 only mirrors ECG
+                    ecg = int(match.group(1))
+                    if 0 <= ecg <= 1023:
+                        emit(dict(type='bio', index=index, ecg=ecg, **ts))
                         index += 1
                         last_valid = time.monotonic()
                 if time.monotonic() - last_valid > 10:
-                    raise RuntimeError('No valid ECG/PPG for 10 seconds. Check firmware, wiring and other serial readers.')
+                    raise RuntimeError('No valid ECG for 10 seconds. Check firmware, wiring and other serial readers.')
     except Exception as exc:
         errors.append('Serial: ' + str(exc))
         stop.set()
@@ -153,62 +147,68 @@ def read_packet(stream):
 
 
 
-def estimate_ppg_bpm(rows):
-    """Experimental peak-interval estimate, not a validated medical detector.
+def clean_ecg(y, fs):
+    """Display-only cleanup: mains notch (60/120 Hz) + 0.5-40 Hz band-pass. Raw CSV unchanged."""
+    import numpy as np
+    from scipy.signal import butter, filtfilt, iirnotch, sosfiltfilt
+    y = np.asarray(y, dtype=float)
+    for f0 in (MAINS_HZ, 2 * MAINS_HZ):
+        if f0 < fs / 2:
+            b, a = iirnotch(f0, 30, fs)
+            y = filtfilt(b, a, y)
+    return sosfiltfilt(butter(2, [0.5, 40], btype='band', fs=fs, output='sos'), y)
 
-    Pi read timestamps can be distorted by USB buffering. Never rescale ADC
-    amplitude into BPM. Reject obvious gaps/clipping/flat or irregular signals.
+
+def estimate_ecg_bpm(rows):
+    """Experimental R-peak interval estimate, not a validated medical detector.
+
+    rows: (pi_elapsed_s, ecg_mv). Firmware sends 0 on lead-off, so windows with
+    zeros or rail clipping are rejected instead of guessed.
     """
     import numpy as np
-    from scipy.signal import butter, sosfiltfilt, find_peaks
+    from scipy.signal import find_peaks
     a = np.asarray(rows, dtype=float)
-    if len(a) < 40:
-        return None, 'Collecting (need 8 seconds)'
-    a = a[a[:, 0] >= a[-1, 0] - 12]
-    t, y = a[:, 0], a[:, 2]
-    if t[-1] - t[0] < 8:
-        return None, 'Collecting (need 8 seconds)'
-    dt = np.diff(t)
-    if np.any(dt <= 0):
+    a = a[a[:, 0] >= a[-1, 0] - 10]
+    t, y = a[:, 0], a[:, 1]
+    if len(t) < 2 or t[-1] - t[0] < 6:
+        return None, 'Collecting (need 6 seconds)'
+    if np.any(np.diff(t) <= 0):
         return None, 'Invalid timestamps'
     fs = (len(t) - 1) / (t[-1] - t[0])
-    if fs < 20 or np.max(dt) > 0.25:
+    if fs < 100 or np.max(np.diff(t)) > 0.1:
         return None, 'Low sample rate / timing gap'
-    if np.mean((y <= 2) | (y >= 1021)) > 0.02 or np.ptp(y) < 6:
-        return None, 'Flat / clipped signal'
-    # Software timestamps only: interpolate to a uniform grid before filtering.
+    if np.mean(y <= 0) > 0.02:
+        return None, 'LEAD OFF - check electrodes'
+    # Pi timestamps are near-uniform at 250 Hz; interpolate anyway before filtering.
     grid = np.arange(t[0], t[-1], 1 / fs)
-    raw = np.interp(grid, t, y)
-    signal = sosfiltfilt(butter(2, [0.5, 4.0], btype='bandpass', fs=fs, output='sos'), raw)
-    span = np.percentile(signal, 95) - np.percentile(signal, 5)
-    if span < 3:
-        return None, 'Weak signal'
-    peaks, _ = find_peaks(signal, distance=max(1, int(fs * 0.30)), prominence=max(2, span * 0.35))
-    # Exclude filter boundary peaks; inspect the last four intervals.
+    signal = clean_ecg(np.interp(grid, t, y), fs)
+    noise = np.median(np.abs(signal - np.median(signal)))
+    peaks, _ = find_peaks(signal, distance=int(fs * 0.33), prominence=max(150, 5 * noise))
+    # Exclude filter boundary peaks; inspect the last six intervals.
     peaks = peaks[(grid[peaks] > grid[0] + .5) & (grid[peaks] < grid[-1] - .3)]
-    if len(peaks) < 5:
-        return None, 'Not enough pulse peaks'
-    intervals = np.diff(grid[peaks])[-4:]
-    median = np.median(intervals)
+    if len(peaks) < 4:
+        return None, 'Not enough R peaks'
     if grid[-1] - grid[peaks[-1]] > 2.2:
-        return None, 'No recent pulse peak'
+        return None, 'No recent R peak'
+    intervals = np.diff(grid[peaks])[-6:]
+    median = np.median(intervals)
     if np.any((intervals < 60/200) | (intervals > 60/35)):
         return None, 'Intervals outside estimator range'
     if np.max(np.abs(intervals - median)) > median * .25:
         return None, 'Unstable signal / irregular intervals'
-    return float(60 / median), 'PPG estimate (not clinically validated)'
+    return float(60 / median), 'ECG R-peak estimate (not clinically validated)'
 
 
-def autoscale_wave(ax, values):
-    """Show all visible raw samples with padding, retaining ADC units."""
+def autoscale_wave(ax, values, min_pad):
+    """Fit visible samples with padding."""
     low, high = float(min(values)), float(max(values))
-    padding = max(10, (high - low) * .12)
-    ax.set_ylim(max(-1, low - padding), min(1024, high + padding))
+    padding = max(min_pad, (high - low) * .12)
+    ax.set_ylim(low - padding, high + padding)
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--host', default='172.20.10.7')
+    p.add_argument('--host', default='ecall.local')
     p.add_argument('--user', default='ecall')
     p.add_argument('--port', default='/dev/ttyUSB0')
     p.add_argument('--camera', default='/dev/video0')
@@ -231,8 +231,9 @@ def main():
                 nominal_video_fps=args.fps, start_laptop_utc=datetime.now(timezone.utc).isoformat(),
                 timing='Pi read-completion timestamps; USB/camera buffering delay is uncalibrated. No ADC or exposure timestamps.',
                 video_timing='AVI constant FPS. Use frames.csv times for alignment, not frame_index / FPS.',
-                arduino='ECG:<0..1023> TAB PPG:<0..1023>; no sample counter, so serial loss cannot be proven absent.',
-                heart_rate='Display-only PPG peak-interval estimate; raw CSV unchanged. Estimator range 35-200 BPM; not diagnostic.',
+                arduino='ECG:<0..1023> TAB PPG:<0..1023>; PPG ignored (sensor disconnected). No sample counter, so serial loss cannot be proven absent.',
+                ecg_mv=f'ecg_raw * {ADC_REF_MV} / 1023 (assumes 5 V USB supply; Pi USB may give ~4.3-4.7 V). 0 = lead-off.',
+                heart_rate=f'Display-only ECG R-peak interval estimate after {MAINS_HZ}/{2 * MAINS_HZ} Hz notch + 0.5-40 Hz band-pass; raw CSV unchanged. Range 35-200 BPM; not diagnostic.',
                 status='starting')
     def save_meta():
         (folder / 'session.json').write_text(json.dumps(meta, indent=2), encoding='utf-8')
@@ -263,7 +264,7 @@ def main():
             with (folder / 'biosignals.csv').open('w', newline='', encoding='utf-8') as bf, \
                  (folder / 'frames.csv').open('w', newline='', encoding='utf-8') as ff:
                 bw, fw = csv.writer(bf), csv.writer(ff)
-                bw.writerow(['sample_index', 'pi_elapsed_s', 'pi_monotonic_ns', 'pi_utc_ns', 'laptop_receive_utc', 'ecg_raw', 'ppg_raw'])
+                bw.writerow(['sample_index', 'pi_elapsed_s', 'pi_monotonic_ns', 'pi_utc_ns', 'laptop_receive_utc', 'ecg_raw', 'ecg_mv'])
                 fw.writerow(['frame_index', 'pi_elapsed_s', 'pi_monotonic_ns', 'pi_utc_ns', 'laptop_receive_utc'])
                 flushed = time.monotonic()
                 dimensions = None
@@ -274,7 +275,7 @@ def main():
                     if kind == 'hello':
                         origin = info['origin_ns']
                         meta['pi_origin_ns'] = origin
-                        status[0] = 'Waiting for camera and ECG/PPG'
+                        status[0] = 'Waiting for camera and ECG'
                     elif kind == 'camera_info':
                         meta['camera_reported'] = info
                     elif kind == 'end':
@@ -289,9 +290,10 @@ def main():
                         elapsed = (info['pi_monotonic_ns'] - origin) / 1e9
                         row = [info['index'], f'{elapsed:.9f}', info['pi_monotonic_ns'], info['pi_utc_ns'], received]
                         if kind == 'bio':
-                            bw.writerow(row + [info['ecg'], info['ppg']])
+                            mv = info['ecg'] * ADC_REF_MV / 1023
+                            bw.writerow(row + [info['ecg'], f'{mv:.1f}'])
                             with display_lock:
-                                bio_display.append((elapsed, info['ecg'], info['ppg']))
+                                bio_display.append((elapsed, mv))
                         else:
                             frame = cv2.imdecode(np.frombuffer(payload, dtype=np.uint8), cv2.IMREAD_COLOR)
                             if frame is None:
@@ -361,20 +363,22 @@ def main():
         grid = fig.add_gridspec(3, 2)
         ax_cam = fig.add_subplot(grid[:, 0])
         ax_ecg = fig.add_subplot(grid[0, 1])
-        ax_ppg = fig.add_subplot(grid[1, 1])
+        ax_filt = fig.add_subplot(grid[1, 1], sharex=ax_ecg)
         ax_hr = fig.add_subplot(grid[2, 1])
-        hr_line, = ax_hr.plot([], [], color='#d25c25', linewidth=1.5)
-        ax_hr.set(title='PPG heart rate: -- BPM', xlabel='Pi read time (s)', ylabel='BPM', ylim=(50, 150), xlim=(0, 60))
-        ax_hr.grid(alpha=.25)
-        hr_history = deque(maxlen=600)
+        ax_hr.set_title('ECG heart rate')
+        ax_hr.axis('off')
+        hr_text = ax_hr.text(.5, .5, '-- BPM', ha='center', va='center', fontsize=44,
+                             fontweight='bold', color='#d25c25', transform=ax_hr.transAxes)
         last_hr_update = [-float('inf')]
         last_scale = [-float('inf')]
         image = ax_cam.imshow(np.zeros((args.height, args.width, 3), dtype=np.uint8))
         ax_cam.set_title('Camera'); ax_cam.axis('off')
         ecg_line, = ax_ecg.plot([], [], color='#168b65', linewidth=1)
-        ppg_line, = ax_ppg.plot([], [], color='#9b4ed0', linewidth=1)
-        for ax, title in [(ax_ecg, 'ECG raw ADC'), (ax_ppg, 'PPG raw ADC')]:
-            ax.set(title=title, xlabel='Pi read time (s)', ylabel='ADC', ylim=(0, 1023), xlim=(0, 5))
+        filt_line, = ax_filt.plot([], [], color='#9b4ed0', linewidth=1)
+        ax_ecg.set(title='ECG raw (mV)', ylabel='mV', ylim=(0, ADC_REF_MV), xlim=(0, 5))
+        ax_filt.set(title=f'ECG filtered ({MAINS_HZ}/{2 * MAINS_HZ} Hz notch + 0.5-40 Hz, display only)',
+                    xlabel='Pi read time (s)', ylabel='mV', ylim=(-500, 500))
+        for ax in (ax_ecg, ax_filt):
             ax.grid(alpha=0.25)
         def update(_):
             with display_lock:
@@ -386,30 +390,28 @@ def main():
                 now = time.monotonic()
                 stale = last_seen['bio'] is None or now - last_seen['bio'] > 2
                 if now - last_hr_update[0] >= 1:
-                    bpm, reason = (None, 'No fresh data') if stale else estimate_ppg_bpm(all_data)
+                    bpm, _ = (None, 'No fresh data') if stale else estimate_ecg_bpm(all_data)
                     last_hr_update[0] = now
-                    hr_history.append((data[-1, 0], float('nan') if bpm is None else bpm))
-                    ax_hr.set_title(('PPG heart rate: -- BPM' if bpm is None else f'PPG heart rate: {bpm:.0f} BPM') + '\n' + reason, fontsize=10)
-                    history = np.asarray(hr_history)
-                    history = history[history[:, 0] >= data[-1, 0] - 60]
-                    hr_line.set_data(history[:, 0], history[:, 1])
-                    valid = history[np.isfinite(history[:, 1]), 1]
-                    ax_hr.set_ylim(min(50, float(valid.min())-10) if len(valid) else 50,
-                                   max(150, float(valid.max())+10) if len(valid) else 150)
-                    ax_hr.set_xlim(max(0, data[-1, 0]-60), max(60, data[-1, 0]))
-                if now - last_scale[0] >= 1:
-                    autoscale_wave(ax_ecg, data[:, 1])
-                    autoscale_wave(ax_ppg, data[:, 2])
-                    last_scale[0] = now
+                    hr_text.set_text('-- BPM' if bpm is None else f'{bpm:.0f} BPM')
                 ecg_line.set_data(data[:, 0], data[:, 1])
-                ppg_line.set_data(data[:, 0], data[:, 2])
-                for ax in (ax_ecg, ax_ppg):
-                    ax.set_xlim(max(0, data[-1, 0]-5), max(5, data[-1, 0]))
+                # Filter a longer span than shown so the visible part is past the edge transient
+                span = all_data[all_data[:, 0] >= all_data[-1, 0] - 10]
+                filtered = None
+                if len(span) > 500 and span[-1, 0] > span[0, 0]:
+                    fs = (len(span) - 1) / (span[-1, 0] - span[0, 0])
+                    filtered = clean_ecg(span[:, 1], fs)
+                    filt_line.set_data(span[:, 0], filtered)
+                if now - last_scale[0] >= 1:
+                    autoscale_wave(ax_ecg, data[:, 1], 50)
+                    if filtered is not None:
+                        autoscale_wave(ax_filt, filtered[span[:, 0] >= data[0, 0]], 50)
+                    last_scale[0] = now
+                ax_ecg.set_xlim(max(0, data[-1, 0]-5), max(5, data[-1, 0]))
             if frame is not None:
                 image.set_data(frame)
             ages = ' | '.join(f'{k}: {counts[k]} (age {time.monotonic()-v:.1f}s)' if v is not None else f'{k}: waiting' for k, v in last_seen.items())
             fig.suptitle(status[0] + '\n' + ages, fontsize=10)
-            return image, ecg_line, ppg_line, hr_line
+            return image, ecg_line, filt_line, hr_text
         animation = FuncAnimation(fig, update, interval=100, cache_frame_data=False)
         fig.tight_layout(rect=(0, 0, 1, .92), h_pad=2.5)
         plt.show()
