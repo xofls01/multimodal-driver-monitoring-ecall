@@ -7,16 +7,15 @@ public class DriverStateWarningUI : MonoBehaviour
     public UnityTcpVehicleBridge tcpBridge;
     public GameObject warningPanel;
     public Text warningText;
-    public Button acknowledgeButton;
     public GameObject emergencyPanel;
     public EmergencyPullOverController emergencyController;
 
     [Header("Warning Sound")]
-    [Range(0f, 1f)] public float warningVolume = 0.25f;
+    [Range(0f, 1f)] public float warningVolume = 0.6f;
     [Range(200f, 2000f)] public float warningFrequencyHz = 880f;
-    [Range(0.05f, 1f)] public float warningDurationSeconds = 0.18f;
+    [Range(0.05f, 1f)] public float warningDurationSeconds = 0.28f;
 
-    private string previousDriverState = "N";
+    private string previousDriverState = "Normal";
     private AudioSource audioSource;
     private AudioClip warningClip;
     private Font runtimeFont;
@@ -53,9 +52,24 @@ public class DriverStateWarningUI : MonoBehaviour
             }
         }
 
-        if (acknowledgeButton != null)
+        if (warningPanel != null)
         {
-            acknowledgeButton.onClick.AddListener(AcknowledgeWarning);
+            // 이전에 생성한 씬에도 확인 버튼이 남아 있지 않도록 숨깁니다.
+            Transform legacyButton = warningPanel.transform.Find("AcknowledgeButton");
+            if (legacyButton != null)
+            {
+                legacyButton.gameObject.SetActive(false);
+            }
+
+            RectTransform panelRect = warningPanel.GetComponent<RectTransform>();
+            if (panelRect != null)
+            {
+                panelRect.sizeDelta = new Vector2(panelRect.sizeDelta.x, 150f);
+            }
+        }
+        if (warningText != null)
+        {
+            warningText.rectTransform.anchoredPosition = Vector2.zero;
         }
 
         SetActive(warningPanel, false);
@@ -91,15 +105,15 @@ public class DriverStateWarningUI : MonoBehaviour
 
     private void Update()
     {
-        string state = tcpBridge == null ? "N" : tcpBridge.CurrentDriverState;
+        string state = tcpBridge == null ? "Normal" : tcpBridge.CurrentDriverState;
         if (string.IsNullOrEmpty(state))
         {
-            state = "N";
+            state = "Normal";
         }
 
         bool emergencyActive = emergencyController != null
             && emergencyController.IsEmergencyActive;
-        if (emergencyActive)
+        if (emergencyActive || state == "Danger")
         {
             previousDriverState = state;
             SetActive(warningPanel, false);
@@ -107,49 +121,24 @@ public class DriverStateWarningUI : MonoBehaviour
             return;
         }
 
-        if (state != previousDriverState)
+        SetActive(emergencyPanel, false);
+        if (state == "Caution")
         {
-            HandleStateEntry(state);
-            previousDriverState = state;
-        }
-
-        if (state == "N")
-        {
-            SetActive(warningPanel, false);
-            SetActive(emergencyPanel, false);
-        }
-        else if (state == "E")
-        {
-            SetActive(warningPanel, false);
-            SetActive(emergencyPanel, true);
-        }
-    }
-
-    private void HandleStateEntry(string state)
-    {
-        if (state == "D" || state == "A")
-        {
-            SetActive(emergencyPanel, false);
             if (warningText != null)
             {
-                warningText.text = state == "D"
-                    ? "졸음운전이 감지되었습니다."
-                    : "전방주시 이탈이 감지되었습니다.";
+                warningText.text = "주의: 운전자 상태를 확인하세요.";
             }
             SetActive(warningPanel, true);
-            PlayWarningSound();
+            if (previousDriverState != "Caution")
+            {
+                PlayWarningSound();
+            }
         }
         else
         {
             SetActive(warningPanel, false);
-            SetActive(emergencyPanel, state == "E");
         }
-    }
-
-    public void AcknowledgeWarning()
-    {
-        // 동일 상태의 20Hz 반복 패킷은 상태 전환이 아니므로 다시 열리지 않습니다.
-        SetActive(warningPanel, false);
+        previousDriverState = state;
     }
 
     private void PlayWarningSound()
@@ -176,7 +165,7 @@ public class DriverStateWarningUI : MonoBehaviour
             float time = index / (float)sampleRate;
             float envelope = 1f - index / (float)sampleCount;
             samples[index] = Mathf.Sin(2f * Mathf.PI * warningFrequencyHz * time)
-                * envelope * 0.35f;
+                * envelope * 0.8f;
         }
 
         AudioClip clip = AudioClip.Create(

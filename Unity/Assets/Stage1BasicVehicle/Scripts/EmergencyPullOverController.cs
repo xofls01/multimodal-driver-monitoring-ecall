@@ -120,7 +120,7 @@ public class EmergencyPullOverController : MonoBehaviour
 
     public void TriggerEmergency()
     {
-        // E가 20Hz로 반복 수신되더라도 최초 한 번만 상태를 시작합니다.
+        // Danger가 20Hz로 반복 수신되더라도 최초 한 번만 상태를 시작합니다.
         if (Phase != EmergencyPhase.Idle)
         {
             return;
@@ -142,7 +142,7 @@ public class EmergencyPullOverController : MonoBehaviour
         SetPhase(EmergencyPhase.SignalAndSlow);
         // hazard는 즉시 켜되 감속과 조향 입력은 FixedUpdate에서 서서히 올립니다.
         vehicle.SetEmergencyControl(0f, 0f, 0f, true, false);
-        Debug.Log("[Emergency] E 감지: 갓길 정차를 시작합니다.");
+        Debug.Log("[Emergency] Danger 감지: 갓길 정차를 시작합니다.");
     }
 
     public void ResetEmergency()

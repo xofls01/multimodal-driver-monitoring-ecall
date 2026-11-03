@@ -39,7 +39,7 @@ public class HazardLightController : MonoBehaviour
 
         if (!wasHazardRequested)
         {
-            // E 감지 또는 hazard 활성화 직후에는 즉시 켜진 상태로 시작합니다.
+            // Danger 감지 또는 hazard 활성화 직후에는 즉시 켜진 상태로 시작합니다.
             wasHazardRequested = true;
             SetLampState(true);
             nextToggleAt = Time.unscaledTime + blinkIntervalSeconds;

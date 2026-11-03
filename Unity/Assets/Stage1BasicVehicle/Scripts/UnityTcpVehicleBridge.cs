@@ -72,7 +72,7 @@ public class UnityTcpVehicleBridge : MonoBehaviour
     public bool IsConnected { get; private set; }
     public string ConnectionStatus { get; private set; } = "Stopped";
     public VehicleControlPacket LatestCommand { get; private set; }
-    public string CurrentDriverState { get; private set; } = "N";
+    public string CurrentDriverState { get; private set; } = "Normal";
 
     private readonly ConcurrentQueue<string> incomingLines =
         new ConcurrentQueue<string>();
@@ -171,15 +171,22 @@ public class UnityTcpVehicleBridge : MonoBehaviour
 
             if (!string.IsNullOrWhiteSpace(command.driver_state))
             {
-                string driverState = command.driver_state.Trim().ToUpperInvariant();
-                if (driverState == "N" || driverState == "D"
-                    || driverState == "A" || driverState == "E")
+                string driverState = command.driver_state.Trim();
+                if (string.Equals(driverState, "Normal", StringComparison.OrdinalIgnoreCase))
                 {
-                    CurrentDriverState = driverState;
+                    CurrentDriverState = "Normal";
+                }
+                else if (string.Equals(driverState, "Caution", StringComparison.OrdinalIgnoreCase))
+                {
+                    CurrentDriverState = "Caution";
+                }
+                else if (string.Equals(driverState, "Danger", StringComparison.OrdinalIgnoreCase))
+                {
+                    CurrentDriverState = "Danger";
                 }
             }
 
-            if (CurrentDriverState == "E" && emergencyController != null)
+            if (CurrentDriverState == "Danger" && emergencyController != null)
             {
                 emergencyController.TriggerEmergency();
             }

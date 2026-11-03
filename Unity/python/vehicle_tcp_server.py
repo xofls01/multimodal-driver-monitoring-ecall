@@ -28,15 +28,15 @@ class ControlCommand:
     ecall: bool = False
     remote_enabled: bool = False
     control_mode: str = "cruise"
-    driver_state: str = "N"
+    driver_state: str = "Normal"
 
     def clamp(self) -> None:
         self.throttle = min(1.0, max(0.0, self.throttle))
         self.brake = min(1.0, max(0.0, self.brake))
         self.steering = min(1.0, max(-1.0, self.steering))
-        self.driver_state = self.driver_state.strip().upper()
-        if self.driver_state not in {"N", "D", "A", "E"}:
-            raise ValueError("driver_state must be one of N, D, A, E")
+        self.driver_state = self.driver_state.strip().capitalize()
+        if self.driver_state not in {"Normal", "Caution", "Danger"}:
+            raise ValueError("driver_state must be Normal, Caution, or Danger")
         self.control_mode = self.control_mode.strip().lower()
         if self.control_mode not in {"cruise", "remote", "manual"}:
             raise ValueError("control_mode must be cruise, remote, or manual")
@@ -58,9 +58,9 @@ class SharedData:
 
     def set_driver_state(self, predicted_state: str) -> None:
         """상태만 변경합니다. Cruise/Remote/Manual 모드에는 손대지 않습니다."""
-        state = predicted_state.strip().upper()
-        if state not in {"N", "D", "A", "E"}:
-            raise ValueError("운전자 상태는 N, D, A, E 중 하나여야 합니다.")
+        state = predicted_state.strip().capitalize()
+        if state not in {"Normal", "Caution", "Danger"}:
+            raise ValueError("운전자 상태는 Normal, Caution, Danger 중 하나여야 합니다.")
         self.update_command(driver_state=state)
 
     def next_command_json(self) -> str:
@@ -85,9 +85,8 @@ def publish_prediction(shared: SharedData, predicted_label: str) -> None:
 
 
 SCENARIO_STEPS: dict[str, tuple[tuple[str, float | None], ...]] = {
-    "emergency": (("N", 10.0), ("E", None)),
-    "drowsiness": (("N", 5.0), ("D", 8.0)),
-    "attention": (("N", 5.0), ("A", 8.0)),
+    "danger": (("Normal", 10.0), ("Danger", None)),
+    "caution": (("Normal", 5.0), ("Caution", 8.0)),
 }
 
 
@@ -165,8 +164,8 @@ class ScenarioRunner:
                 if stop_event.is_set() or not self.shared.running:
                     print(f"[SCENARIO] {name} 중단")
                     return
-            publish_prediction(self.shared, "N")
-            print(f"[SCENARIO] {name} 완료, state=N")
+            publish_prediction(self.shared, "Normal")
+            print(f"[SCENARIO] {name} 완료, state=Normal")
         finally:
             with self.lock:
                 if self.stop_event is stop_event:
@@ -321,13 +320,12 @@ def print_help() -> None:
   coast                           가속·브레이크 0
   hazard on|off                   비상등 상태
   ecall on|off                    e-Call 상태
-  state N|D|A|E                   모델 분류 상태 전송
+  state normal|caution|danger     모델 분류 상태 전송
   cruise                          Unity 정속주행 활성화
   manual                          Cruise를 끄고 키보드 제어로 복귀
   remote                          Python 원격 제어 활성화
-  scenario emergency              N 10초 후 E 유지
-  scenario drowsiness             N 5초, D 8초, N
-  scenario attention              N 5초, A 8초, N
+  scenario danger                 Normal 10초 후 Danger 유지
+  scenario caution                Normal 5초, Caution 8초, Normal
   scenario stop                   진행 중인 상태 시나리오 중단
   demo                            기본 가속·조향·정차 시나리오
   status                          최근 차량 상태와 명령 확인
@@ -394,7 +392,7 @@ def console_loop(shared: SharedData, scenarios: ScenarioRunner) -> None:
             elif command == "state" and len(parts) == 2:
                 scenarios.stop(wait=True)
                 publish_prediction(shared, parts[1])
-                print(f"[MODEL] 운전자 상태를 {parts[1].upper()}로 설정했습니다.")
+                print(f"[MODEL] 운전자 상태를 {parts[1].capitalize()}로 설정했습니다.")
             elif command == "cruise":
                 shared.update_command(
                     remote_enabled=False,

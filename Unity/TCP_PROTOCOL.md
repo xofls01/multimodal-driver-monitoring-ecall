@@ -26,7 +26,7 @@ TCP는 패킷 경계를 보장하지 않으므로 양쪽 모두 줄바꿈까지 
   "control_mode": "Cruise",
   "hazard": false,
   "ecall": false,
-  "driver_state": "N",
+  "driver_state": "Normal",
   "emergency_phase": "Idle"
 }
 ```
@@ -48,7 +48,7 @@ TCP는 패킷 경계를 보장하지 않으므로 양쪽 모두 줄바꿈까지 
   "ecall": false,
   "remote_enabled": false,
   "control_mode": "cruise",
-  "driver_state": "D"
+  "driver_state": "Caution"
 }
 ```
 
@@ -61,11 +61,11 @@ TCP는 패킷 경계를 보장하지 않으므로 양쪽 모두 줄바꿈까지 
 | `ecall` | Boolean | Remote e-Call 상태 |
 | `control_mode` | `cruise`, `remote`, `manual` | 명시적인 일반 제어 모드 |
 | `remote_enabled` | Boolean | `control_mode` 없는 구버전 패킷의 호환 필드 |
-| `driver_state` | `N`, `D`, `A`, `E` | 운전자 분류 결과 |
+| `driver_state` | `Normal`, `Caution`, `Danger` | 운전자 분류 결과 (대소문자 무관) |
 
 ### 모드 해석 규칙
 
-1. E로 잠긴 Emergency 제어가 언제나 최우선입니다.
+1. Danger로 잠긴 Emergency 제어가 언제나 최우선입니다.
 2. `control_mode`이 있으면 해당 값을 사용합니다.
 3. `control_mode` 없이 `remote_enabled` 필드가 있으면 구버전 호환을 위해 `true`를 Remote, `false`를 Manual로 해석합니다.
 4. 두 모드 필드 없이 `driver_state`만 온 패킷은 현재 제어 모드를 그대로 유지합니다.
@@ -76,12 +76,11 @@ Python 기본 패킷은 `control_mode="cruise"`, `remote_enabled=false`입니다
 
 | 코드 | 의미 | Unity 동작 |
 |---|---|---|
-| `N` | Normal | 경고 없음, 선택된 일반 제어 유지 |
-| `D` | Drowsiness | D 최초 진입 시 경고창/비프 1회 |
-| `A` | Attention | A 최초 진입 시 경고창/비프 1회 |
-| `E` | Emergency | 비상 UI, 비상등 점멸, 감속, 갓길 이동, 정렬, 정차, e-Call |
+| `Normal` | 정상 | 주의 메시지 숨김, 선택된 일반 제어 유지 |
+| `Caution` | 주의 | 메시지 유지, 진입 시 경고음 1회, 정차 없음 |
+| `Danger` | 위험 | 비상 UI, 비상등 점멸, 감속, 갓길 이동, 정렬, 정차, e-Call |
 
-E는 Unity에서 한 번 감지되면 다음 단계가 잠기며 이후 분류가 흔들려도 취소되거나 처음부터 재시작되지 않습니다.
+`Caution` 메시지는 확인 버튼 없이 `Normal`로 돌아가면 자동으로 사라집니다. 20Hz 반복 패킷에는 경고음이 다시 울리지 않습니다. `Danger`는 Unity에서 한 번 감지되면 다음 단계가 잠기며 이후 분류가 흔들려도 취소되거나 처음부터 재시작되지 않습니다.
 
 ```text
 Idle
@@ -91,9 +90,9 @@ Idle
 -> Stopped
 ```
 
-E가 감지되는 즉시 `hazard=true`가 잠기고 차량 전·후방 좌우 램프가 점멸합니다. `Stopped`에서도 `hazard=true`, `ecall=true`, 브레이크가 유지됩니다. 재시험은 `state N`을 전송한 뒤 Unity에서 R을 누릅니다.
+`Danger`가 감지되는 즉시 `hazard=true`가 잠기고 차량 전·후방 좌우 램프가 점멸합니다. `Stopped`에서도 `hazard=true`, `ecall=true`, 브레이크가 유지됩니다. 재시험은 `state normal`을 전송한 뒤 Unity에서 R을 누릅니다.
 
-일반 상태에서는 Python 콘솔의 `hazard on`/`hazard off`로 점멸을 독립 시험할 수 있습니다. E 비상 제어가 활성화된 동안에는 수신 패킷의 `hazard=false`가 비상 점멸을 해제하지 않습니다.
+일반 상태에서는 Python 콘솔의 `hazard on`/`hazard off`로 점멸을 독립 시험할 수 있습니다. Danger 비상 제어가 활성화된 동안에는 수신 패킷의 `hazard=false`가 비상 점멸을 해제하지 않습니다.
 
 ## 연결 안전 동작
 

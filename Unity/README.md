@@ -4,12 +4,12 @@
 
 - Play 즉시 시작하는 기본 60km/h P 제어 정속주행
 - 100m 도로 세그먼트 4개의 재활용식 직선 도로
-- Python의 `N/D/A/E` 상태 및 명시적 원격 운전 명령
-- 별도 스레드에서 실행되는 emergency/drowsiness/attention 시나리오
-- D/A 진입 시 터치 가능한 경고창과 1회 경고음
-- 딥 네이비 메탈릭 차체와 전면 다크/후면 레드 램프 베이스
+- Python의 `Normal/Caution/Danger` 상태 및 명시적 원격 운전 명령
+- 별도 스레드에서 실행되는 caution/danger 시나리오
+- Caution 진입 시 확인 버튼 없는 주의 메시지와 1회 경고음
+- 밝은 웜 화이트 차체와 전면 다크/후면 레드 램프 베이스
 - 램프 베이스 위 전·후방 좌우 주황색 비상등 4개의 실시간 점멸 표시
-- E 진입 시 비상 정차 상태 머신, 비상 UI, 비상등 점멸, e-Call 상태
+- Danger 진입 시 비상 정차 상태 머신, 비상 UI, 비상등 점멸, e-Call 상태
 
 ## 처음 적용하는 순서
 
@@ -29,12 +29,12 @@
 Emergency > 명시적 Remote > Cruise > Manual
 ```
 
-- `Emergency`: E가 한 번 감지되면 Reset 전까지 잠깁니다.
+- `Emergency`: Danger가 한 번 감지되면 Reset 전까지 잠깁니다.
 - `Remote`: Python 패킷의 `control_mode="remote"`일 때만 활성화됩니다.
 - `Cruise`: 기본 ON이며 TCP 연결 여부와 무관하게 동작합니다.
 - `Manual`: Cruise를 끄고 Remote가 아닌 경우 키보드 입력을 사용합니다.
 
-`driver_state` 수신 자체는 제어 모드를 바꾸지 않습니다. 따라서 Python이 N/D/A를 20Hz로 전송해도 정속주행은 유지됩니다. `control_mode`이 없는 예전 송신기는 `remote_enabled`를 사용하므로 하위 호환됩니다.
+`Normal`/`Caution` 수신 자체는 제어 모드를 바꾸지 않습니다. 따라서 Python이 이 상태를 20Hz로 전송해도 정속주행은 유지됩니다. `Danger`는 비상 정차를 시작합니다. `control_mode`이 없는 예전 송신기는 `remote_enabled`를 사용하므로 제어 모드는 하위 호환됩니다. 이전 `N/D/A/E` 분류 코드는 더 이상 받지 않습니다.
 
 ## 정속주행 제어식
 
@@ -67,15 +67,13 @@ python3 Unity/python/vehicle_tcp_server.py
 외부 패키지는 필요하지 않습니다.
 
 ```text
-scenario emergency    # N 10초 -> E 유지
-scenario drowsiness   # N 5초 -> D 8초 -> N
-scenario attention    # N 5초 -> A 8초 -> N
+scenario danger       # Normal 10초 -> Danger 유지
+scenario caution      # Normal 5초 -> Caution 8초 -> Normal
 scenario stop         # 실행 중인 상태 시나리오 중단
 
-state N
-state D
-state A
-state E
+state normal
+state caution
+state danger
 
 cruise                # Unity Cruise 활성화
 manual                # Cruise OFF, 키보드 제어
@@ -105,20 +103,19 @@ quit
 3. 차량이 자동 출발해 목표 속도 부근을 유지하는지 봅니다.
 4. 오래 주행해도 Hierarchy의 RoadSegment가 4개인지 확인합니다.
 
-### D/A 경고
+### Caution 경고
 
 1. Python 서버와 Unity를 실행합니다.
-2. `scenario drowsiness`를 입력합니다.
-3. 5초 후 `졸음운전이 감지되었습니다.` 창과 짧은 비프음이 한 번 발생합니다.
-4. `주의` 버튼을 클릭/터치합니다. D가 계속 전송돼도 창은 다시 열리지 않습니다.
-5. 시나리오가 N으로 끝난 뒤 `state D`를 입력하면 새로운 진입이므로 다시 표시됩니다.
-6. `scenario attention`도 같은 방식으로 A 문구를 확인합니다.
+2. `scenario caution`을 입력합니다.
+3. 5초 후 `주의: 운전자 상태를 확인하세요.` 메시지와 경고음이 한 번 발생합니다.
+4. Caution 동안 메시지는 버튼 없이 유지되고, 8초 후 Normal이 되면 자동으로 사라집니다.
+5. 다시 `state caution`을 입력하면 새 진입이므로 메시지와 경고음이 다시 발생합니다.
 
 ### 비상 정차
 
-1. `cruise`를 입력하고 `scenario emergency`를 실행합니다.
-2. N으로 10초 주행 후 E가 20Hz 패킷에 계속 포함됩니다.
-3. D/A 창이 닫히고 비상 UI가 나타나며 차량 전·후방 비상등이 즉시 깜빡입니다.
+1. `cruise`를 입력하고 `scenario danger`를 실행합니다.
+2. Normal로 10초 주행 후 Danger가 20Hz 패킷에 계속 포함됩니다.
+3. Caution 메시지가 닫히고 비상 UI가 나타나며 차량 전·후방 비상등이 즉시 깜빡입니다.
 4. 차량이 최소 약 55m 길이의 완만한 S자 경로를 따라 감속과 조향을 동시에 진행합니다. 진입 속도가 높으면 경로도 자동으로 길어집니다.
 5. 실제 횡속도를 반영해 갓길 중앙에 진입하고, 차체가 전방과 평행해진 뒤 정차합니다.
 6. HUD의 단계가 아래 순서로 바뀝니다.
@@ -127,9 +124,9 @@ quit
 SignalAndSlow -> MoveToShoulder -> StraightenAndBrake -> Stopped
 ```
 
-`Stopped`에서는 브레이크, `hazard=true`, 비상등 점멸, `ecall=true`가 유지됩니다. 다시 시험하려면 Python에서 `state N`을 보낸 뒤 Unity에서 R을 누릅니다.
+`Stopped`에서는 브레이크, `hazard=true`, 비상등 점멸, `ecall=true`가 유지됩니다. 다시 시험하려면 Python에서 `state normal`을 보낸 뒤 Unity에서 R을 누릅니다.
 
-비상 상황과 별개로 표시만 확인하려면 Python 콘솔에서 `hazard on`과 `hazard off`를 입력합니다. Cruise/Manual/Remote 어느 일반 제어 모드에서도 동작하며, E 비상 제어 중에는 안전상 외부 `hazard off`보다 비상 점멸이 우선합니다.
+비상 상황과 별개로 표시만 확인하려면 Python 콘솔에서 `hazard on`과 `hazard off`를 입력합니다. Cruise/Manual/Remote 어느 일반 제어 모드에서도 동작하며, Danger 비상 제어 중에는 안전상 외부 `hazard off`보다 비상 점멸이 우선합니다.
 
 ## 키보드 조작
 
@@ -162,20 +159,20 @@ Manual 운전을 하려면 `C`로 Cruise를 끄고 Manual 모드를 사용합니
   -> Python ControlCommand.driver_state
   -> 20Hz NDJSON TCP
   -> UnityTcpVehicleBridge.CurrentDriverState
-  -> D/A: DriverStateWarningUI
-  -> E: EmergencyPullOverController -> HazardLightController
+  -> Caution: DriverStateWarningUI
+  -> Danger: EmergencyPullOverController -> HazardLightController
   -> BasicWheelVehicleController
   -> WheelCollider
 ```
 
-D/A UI는 직전 상태와 현재 상태가 달라진 순간만 처리합니다. 사용자가 닫은 뒤 같은 D/A 패킷이 반복돼도 상태 진입 이벤트가 아니므로 다시 열리지 않습니다. D→A 또는 D/A→N→D/A는 새 진입으로 처리됩니다. 비상 정차 중에는 분류가 흔들려도 Emergency 컨트롤과 비상 UI가 우선합니다.
+Caution 메시지는 상태가 유지되는 동안 표시되고 Normal로 돌아가면 자동으로 사라집니다. 경고음은 Caution으로 진입할 때만 발생하며 같은 상태의 반복 패킷에서는 다시 울리지 않습니다. 비상 정차 중에는 분류가 흔들려도 Emergency 컨트롤과 비상 UI가 우선합니다.
 
 ## 실제 모델 연결 위치
 
 `Unity/python/vehicle_tcp_server.py`에서 모델 추론 결과를 얻은 위치에 한 줄을 연결합니다.
 
 ```python
-publish_prediction(shared, predicted_label)  # predicted_label: N, D, A, E
+publish_prediction(shared, predicted_label)  # predicted_label: Normal, Caution, Danger
 ```
 
 또는 동일한 동작의 `shared.set_driver_state(predicted_label)`을 호출해도 됩니다. 이 함수는 운전자 상태만 변경하며 Cruise/Remote/Manual 모드는 변경하지 않습니다.
@@ -183,6 +180,6 @@ publish_prediction(shared, predicted_label)  # predicted_label: N, D, A, E
 ## 문제 해결
 
 - 차량이 움직이지 않으면 WheelCollider 4개 참조, Rigidbody `Is Kinematic`, 바퀴와 노면 접촉을 확인합니다.
-- UI 클릭이 안 되면 Scene의 `EventSystem`과 Canvas의 `GraphicRaycaster`를 확인합니다.
+- 경고음이 안 들리면 Main Camera의 `AudioListener`와 Inspector의 `warningVolume`을 확인합니다.
 - Python이 다른 컴퓨터라면 `PythonTcpBridge > Host`를 Python 컴퓨터 IP로 바꿉니다.
 - 재질이 분홍색이면 생성된 Material의 Shader를 프로젝트 렌더 파이프라인에 맞는 Lit/Standard로 변경합니다.

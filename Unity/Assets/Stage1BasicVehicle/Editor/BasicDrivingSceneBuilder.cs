@@ -47,9 +47,9 @@ public static class BasicDrivingSceneBuilder
         );
         Material bodyMaterial = GetOrCreateMaterial(
             MaterialFolder + "/VehicleBody.mat",
-            new Color(0.05f, 0.14f, 0.28f)
+            new Color(0.9f, 0.91f, 0.89f)
         );
-        ConfigureMetallicSurface(bodyMaterial, 0.55f, 0.55f);
+        ConfigureMetallicSurface(bodyMaterial, 0.15f, 0.55f);
         Material windowMaterial = GetOrCreateMaterial(
             MaterialFolder + "/VehicleWindow.mat",
             new Color(0.12f, 0.17f, 0.18f)
@@ -358,41 +358,20 @@ public static class BasicDrivingSceneBuilder
             "DriverWarningPanel",
             canvasObject.transform,
             new Color(0.12f, 0.12f, 0.12f, 0.96f),
-            new Vector2(620f, 250f),
+            new Vector2(620f, 150f),
             new Vector2(0f, 30f)
         );
         Text warningText = CreateUiText(
             "WarningMessage",
             warningPanel.transform,
             font,
-            "운전자 상태 경고",
+            "주의: 운전자 상태를 확인하세요.",
             34,
             TextAnchor.MiddleCenter,
             new Vector2(560f, 100f),
-            new Vector2(0f, 45f)
-        );
-        warningText.color = new Color(1f, 0.84f, 0.25f);
-
-        GameObject buttonObject = CreateUiPanel(
-            "AcknowledgeButton",
-            warningPanel.transform,
-            new Color(0.92f, 0.58f, 0.08f, 1f),
-            new Vector2(220f, 72f),
-            new Vector2(0f, -65f)
-        );
-        Button acknowledgeButton = buttonObject.AddComponent<Button>();
-        acknowledgeButton.targetGraphic = buttonObject.GetComponent<Image>();
-        Text buttonText = CreateUiText(
-            "Label",
-            buttonObject.transform,
-            font,
-            "주의",
-            30,
-            TextAnchor.MiddleCenter,
-            new Vector2(220f, 72f),
             Vector2.zero
         );
-        buttonText.color = Color.black;
+        warningText.color = new Color(1f, 0.84f, 0.25f);
 
         GameObject emergencyPanel = CreateUiPanel(
             "EmergencyPanel",
@@ -418,7 +397,6 @@ public static class BasicDrivingSceneBuilder
         warningUI.tcpBridge = tcpBridge;
         warningUI.warningPanel = warningPanel;
         warningUI.warningText = warningText;
-        warningUI.acknowledgeButton = acknowledgeButton;
         warningUI.emergencyPanel = emergencyPanel;
         warningUI.emergencyController = tcpBridge.emergencyController;
 
