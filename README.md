@@ -70,4 +70,34 @@ py .\biosignal_camera_live_bpm.py --host ecall.local
 
 비밀번호 요청 시 `ecall202609`를 입력합니다.
 
+연결되면 카메라와 ECG·PPG는 먼저 미리보기로 표시되며, 이때는 파일에 데이터가 기록되지 않습니다.
+
+화면의 ECG에는 `0.5–40 Hz` band-pass와 `60 Hz` notch 필터가 적용됩니다. 분석 재현성을 위해 `biosignals.csv`에는 필터링하지 않은 원본 ADC 값이 저장됩니다.
+
+1. 대시보드 아래의 `Start recording` 버튼을 누릅니다.
+2. 화면에 표시되는 3초 카운트다운이 끝나면 CSV와 영상 기록이 시작됩니다.
+3. 기록 시작 후 15초가 지나면 자동으로 기록이 종료되고 미리보기 상태로 돌아갑니다.
+4. 15초 전이라도 `Stop recording` 버튼을 누르면 즉시 기록을 마무리할 수 있습니다. 카운트다운 중 누르면 기록 시작이 취소됩니다.
+5. `Start next recording` 버튼을 누르면 다시 3초 후 다음 기록을 시작할 수 있습니다.
+6. 프로그램을 끝내려면 대시보드 창을 닫고, 터미널에 `Recording closed`가 표시될 때까지 기다립니다.
+
+각 기록은 같은 세션 폴더 아래에 덮어쓰기 없이 따로 저장됩니다.
+
+```text
+recordings/SESSION_날짜_시간/
+├── session.json
+├── TAKE_001/
+│   ├── biosignals.csv
+│   ├── frames.csv
+│   ├── video_frames.csv
+│   └── video.avi
+└── TAKE_002/
+    ├── biosignals.csv
+    ├── frames.csv
+    ├── video_frames.csv
+    └── video.avi
+```
+
+`video.avi`는 30 FPS 형식을 유지하면서 실제 카메라 타임스탬프에 맞게 프레임을 반복하거나 생략하므로 배속 없이 재생됩니다. `frames.csv`에는 원본 수신 프레임 시간이, `video_frames.csv`에는 AVI의 각 프레임과 원본 프레임의 대응 관계가 저장됩니다.
+
 > VS Code의 Python 확장은 터미널 명령으로 실행할 때 필수는 아닙니다.

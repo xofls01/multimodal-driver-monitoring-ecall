@@ -1,0 +1,51 @@
+{
+  "host": "ecall.local",
+  "requested_resolution": [
+    1280,
+    720
+  ],
+  "nominal_video_fps": 30,
+  "start_laptop_utc": "2026-11-01T09:08:23.986472+00:00",
+  "timing": "Pi read-completion timestamps; USB/camera buffering delay is uncalibrated. No ADC or exposure timestamps.",
+  "video_timing": "AVI constant FPS with repeated frames aligned to Pi timestamps. Use video_frames.csv for AVI-frame mapping and frames.csv for source-frame times.",
+  "arduino": "ECG:<0..1023> TAB PPG:<0..1023>; no sample counter, so serial loss cannot be proven absent.",
+  "heart_rate": "Display-only PPG peak-interval estimate; raw CSV unchanged. Estimator range 35-200 BPM; not diagnostic.",
+  "recording": "Preview begins after connection. Each button-started take is saved in a separate TAKE_### folder after a three-second countdown.",
+  "max_recording_seconds": 15.0,
+  "takes": [
+    {
+      "number": 1,
+      "start_laptop_utc": "2026-11-01T09:09:02.785530+00:00",
+      "max_duration_s": 15.0,
+      "status": "stopped",
+      "folder": "TAKE_001",
+      "first_pi_elapsed_s": 31.490316925,
+      "end_laptop_utc": "2026-11-01T09:09:06.972662+00:00",
+      "duration_s": 4.169,
+      "counts": {
+        "bio": 1024,
+        "frame": 59
+      },
+      "video_frames": 125,
+      "video_duration_s": 4.167
+    }
+  ],
+  "total_counts": {
+    "bio": 1024,
+    "frame": 59
+  },
+  "status": "stopped",
+  "pi_origin_ns": 4054492624210,
+  "camera_reported": {
+    "type": "camera_info",
+    "width": 1280.0,
+    "height": 720.0,
+    "fps": 30.0,
+    "payload_bytes": 0
+  },
+  "counts": {
+    "bio": 1024,
+    "frame": 59
+  },
+  "end_laptop_utc": "2026-11-01T09:47:09.453596+00:00"
+}

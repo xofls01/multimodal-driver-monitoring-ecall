@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 PATTERN = re.compile(r"ECG:(\d+)\s+PPG:(\d+)")
+MAX_RECORDING_SECONDS = 15.0
 
 def parse_sample(line):
     match = PATTERN.fullmatch(line.strip())
@@ -21,7 +22,7 @@ def parse_sample(line):
         return None
     values = tuple(map(int, match.groups()))
     return values if all(0 <= v <= 1023 for v in values) else None
-
+    
 # Sent as an in-memory command. No script or recordings written on the Pi.
 REMOTE = r'''
 import sys, time, json, struct, threading, queue, re
@@ -224,6 +225,7 @@ def main():
     import paramiko
     import matplotlib.pyplot as plt
     from matplotlib.animation import FuncAnimation
+    from matplotlib.widgets import Button
 
     folder = args.output / datetime.now().strftime('SESSION_%Y%m%d_%H%M%S_%f')
     folder.mkdir(parents=True, exist_ok=False)
@@ -233,9 +235,15 @@ def main():
                 video_timing='AVI constant FPS. Use frames.csv times for alignment, not frame_index / FPS.',
                 arduino='ECG:<0..1023> TAB PPG:<0..1023>; no sample counter, so serial loss cannot be proven absent.',
                 heart_rate='Display-only PPG peak-interval estimate; raw CSV unchanged. Estimator range 35-200 BPM; not diagnostic.',
+                recording='Preview begins after connection. Each button-started take is saved in a separate TAKE_### folder after a three-second countdown.',
+                max_recording_seconds=MAX_RECORDING_SECONDS,
+                takes=[],
+                total_counts={'bio': 0, 'frame': 0},
                 status='starting')
+    meta_lock = threading.Lock()
     def save_meta():
-        (folder / 'session.json').write_text(json.dumps(meta, indent=2), encoding='utf-8')
+        with meta_lock:
+            (folder / 'session.json').write_text(json.dumps(meta, indent=2), encoding='utf-8')
     save_meta()
     client = paramiko.SSHClient()
     client.load_system_host_keys()
@@ -245,80 +253,160 @@ def main():
     # Reject unknown/changed keys; first verify through Windows ssh.
     stop = threading.Event()
     done = threading.Event()
+    recording = threading.Event()
+    stop_recording_request = threading.Event()
+    recording_finished = threading.Event()
+    countdown_deadline = [None]
+    recording_started_at = [None]
+    recording_deadline = [None]
+    active_take_number = [0]
+    active_take_meta = [None]
     display_lock = threading.Lock()
     bio_display = deque(maxlen=30000)
     latest_frame = [None]
     status = ['Connecting']
     counts = {'bio': 0, 'frame': 0}
+    total_counts = {'bio': 0, 'frame': 0}
     last_seen = {'bio': None, 'frame': None}
     stderr_lines = deque(maxlen=30)
     worker = None
     stdin = stdout = stderr = None
 
     def receive():
-        video = None
+        video = bf = ff = bw = fw = None
+        dimensions = None
+        flushed = None
         origin = None
+        failure = None
         expected = {'bio': 0, 'frame': 0}
+
+        def open_recording_files():
+            nonlocal bf, ff, bw, fw, dimensions, flushed
+            take_number = active_take_number[0]
+            take_folder = folder / f'TAKE_{take_number:03d}'
+            take_folder.mkdir(parents=False, exist_ok=False)
+            bf = (take_folder / 'biosignals.csv').open('w', newline='', encoding='utf-8')
+            ff = (take_folder / 'frames.csv').open('w', newline='', encoding='utf-8')
+            bw, fw = csv.writer(bf), csv.writer(ff)
+            bw.writerow(['sample_index', 'pi_elapsed_s', 'pi_monotonic_ns', 'pi_utc_ns', 'laptop_receive_utc', 'ecg_raw', 'ppg_raw'])
+            fw.writerow(['frame_index', 'pi_elapsed_s', 'pi_monotonic_ns', 'pi_utc_ns', 'laptop_receive_utc'])
+            dimensions = None
+            flushed = time.monotonic()
+            active_take_meta[0]['folder'] = take_folder.name
+            save_meta()
+
+        def finish_recording():
+            nonlocal video, bf, ff, bw, fw, dimensions, flushed
+            take_number = active_take_number[0]
+            ended_at = time.monotonic()
+            recording.clear()
+            if video is not None:
+                video.release()
+                video = None
+            for stream in (bf, ff):
+                if stream is not None:
+                    stream.flush()
+                    stream.close()
+            bf = ff = bw = fw = None
+            dimensions = None
+            flushed = None
+            take_meta = active_take_meta[0]
+            if take_meta is not None:
+                take_meta['end_laptop_utc'] = datetime.now(timezone.utc).isoformat()
+                if recording_started_at[0] is not None:
+                    take_meta['duration_s'] = round(ended_at - recording_started_at[0], 3)
+                take_meta['counts'] = dict(counts)
+                take_meta['status'] = 'stopped'
+            meta['counts'] = dict(total_counts)
+            meta['total_counts'] = dict(total_counts)
+            meta['status'] = 'recording_stopped'
+            save_meta()
+            status[0] = f'Take {take_number:03d} stopped - preview only'
+            active_take_meta[0] = None
+            recording_started_at[0] = None
+            recording_deadline[0] = None
+            stop_recording_request.clear()
+            recording_finished.set()
+
         try:
-            with (folder / 'biosignals.csv').open('w', newline='', encoding='utf-8') as bf, \
-                 (folder / 'frames.csv').open('w', newline='', encoding='utf-8') as ff:
-                bw, fw = csv.writer(bf), csv.writer(ff)
-                bw.writerow(['sample_index', 'pi_elapsed_s', 'pi_monotonic_ns', 'pi_utc_ns', 'laptop_receive_utc', 'ecg_raw', 'ppg_raw'])
-                fw.writerow(['frame_index', 'pi_elapsed_s', 'pi_monotonic_ns', 'pi_utc_ns', 'laptop_receive_utc'])
-                flushed = time.monotonic()
-                dimensions = None
-                while True:
-                    info, payload = read_packet(stdout)
-                    received = datetime.now(timezone.utc).isoformat()
-                    kind = info['type']
-                    if kind == 'hello':
-                        origin = info['origin_ns']
-                        meta['pi_origin_ns'] = origin
-                        status[0] = 'Waiting for camera and ECG/PPG'
-                    elif kind == 'camera_info':
-                        meta['camera_reported'] = info
-                    elif kind == 'end':
-                        if info['errors']:
-                            raise RuntimeError('; '.join(info['errors']))
-                        meta['status'] = 'stopped'
-                        break
-                    elif kind in expected:
-                        if origin is None or info['index'] != expected[kind]:
-                            raise RuntimeError('Packet sequence mismatch')
-                        expected[kind] += 1
-                        elapsed = (info['pi_monotonic_ns'] - origin) / 1e9
-                        row = [info['index'], f'{elapsed:.9f}', info['pi_monotonic_ns'], info['pi_utc_ns'], received]
-                        if kind == 'bio':
+            while True:
+                info, payload = read_packet(stdout)
+                if (recording.is_set() and recording_deadline[0] is not None
+                        and time.monotonic() >= recording_deadline[0]):
+                    stop_recording_request.set()
+                if stop_recording_request.is_set() and recording.is_set():
+                    finish_recording()
+                if recording.is_set() and bf is None:
+                    open_recording_files()
+                received = datetime.now(timezone.utc).isoformat()
+                kind = info['type']
+                if kind == 'hello':
+                    origin = info['origin_ns']
+                    meta['pi_origin_ns'] = origin
+                    status[0] = 'Waiting for camera and ECG/PPG'
+                elif kind == 'camera_info':
+                    meta['camera_reported'] = info
+                elif kind == 'end':
+                    if recording.is_set() or bf is not None:
+                        finish_recording()
+                    if info['errors']:
+                        raise RuntimeError('; '.join(info['errors']))
+                    meta['status'] = 'stopped' if active_take_number[0] else 'closed_without_recording'
+                    break
+                elif kind in expected:
+                    if origin is None or info['index'] != expected[kind]:
+                        raise RuntimeError('Packet sequence mismatch')
+                    expected[kind] += 1
+                    elapsed = (info['pi_monotonic_ns'] - origin) / 1e9
+                    row = [info['index'], f'{elapsed:.9f}', info['pi_monotonic_ns'], info['pi_utc_ns'], received]
+                    save_this_packet = recording.is_set() and bf is not None
+                    if kind == 'bio':
+                        with display_lock:
+                            bio_display.append((elapsed, info['ecg'], info['ppg']))
+                        if save_this_packet:
                             bw.writerow(row + [info['ecg'], info['ppg']])
-                            with display_lock:
-                                bio_display.append((elapsed, info['ecg'], info['ppg']))
-                        else:
-                            frame = cv2.imdecode(np.frombuffer(payload, dtype=np.uint8), cv2.IMREAD_COLOR)
-                            if frame is None:
-                                raise RuntimeError('JPEG decode failed')
-                            h, w = frame.shape[:2]
+                    else:
+                        frame = cv2.imdecode(np.frombuffer(payload, dtype=np.uint8), cv2.IMREAD_COLOR)
+                        if frame is None:
+                            raise RuntimeError('JPEG decode failed')
+                        h, w = frame.shape[:2]
+                        with display_lock:
+                            latest_frame[0] = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        if save_this_packet:
                             if video is None:
                                 dimensions = (w, h)
-                                video = cv2.VideoWriter(str(folder / 'video.avi'), cv2.VideoWriter_fourcc(*'MJPG'), args.fps, dimensions)
+                                take_folder = folder / f'TAKE_{active_take_number[0]:03d}'
+                                video = cv2.VideoWriter(str(take_folder / 'video.avi'), cv2.VideoWriter_fourcc(*'MJPG'), args.fps, dimensions)
                                 if not video.isOpened():
                                     raise RuntimeError('Cannot create laptop video.avi')
                             if dimensions != (w, h):
                                 raise RuntimeError('Camera dimensions changed')
                             video.write(frame)
                             fw.writerow(row)
-                            with display_lock:
-                                latest_frame[0] = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    if save_this_packet:
+                        take_meta = active_take_meta[0]
+                        if take_meta is not None and 'first_pi_elapsed_s' not in take_meta:
+                            take_meta['first_pi_elapsed_s'] = elapsed
                         counts[kind] += 1
-                        last_seen[kind] = time.monotonic()
-                        status[0] = 'Recording on laptop'
-                    if time.monotonic() - flushed > 1:
-                        bf.flush()
-                        ff.flush()
-                        flushed = time.monotonic()
+                        total_counts[kind] += 1
+                    last_seen[kind] = time.monotonic()
+                    if stop_recording_request.is_set() and recording.is_set():
+                        status[0] = 'Stopping recording...'
+                    elif recording.is_set():
+                        status[0] = f'Recording take {active_take_number[0]:03d} on laptop'
+                    elif recording_finished.is_set():
+                        status[0] = f'Take {active_take_number[0]:03d} stopped - preview only'
+                    elif countdown_deadline[0] is None:
+                        status[0] = 'Preview ready - press Start recording'
+                if bf is not None and time.monotonic() - flushed > 1:
+                    bf.flush()
+                    ff.flush()
+                    flushed = time.monotonic()
         except Exception as exc:
+            failure = str(exc)
             meta['status'] = 'error'
-            meta['error'] = str(exc)
-            status[0] = 'ERROR: ' + str(exc)
+            meta['error'] = failure
+            status[0] = 'ERROR: ' + failure
             print(status[0])
             try:
                 stdin.write(b'q')
@@ -326,9 +414,14 @@ def main():
             except Exception:
                 pass
         finally:
-            if video is not None:
-                video.release()
-            meta['counts'] = dict(counts)
+            if recording.is_set() or bf is not None:
+                finish_recording()
+            if failure is not None:
+                meta['status'] = 'error'
+                meta['error'] = failure
+                status[0] = 'ERROR: ' + failure
+            meta['counts'] = dict(total_counts)
+            meta['total_counts'] = dict(total_counts)
             meta['end_laptop_utc'] = datetime.now(timezone.utc).isoformat()
             save_meta()
             done.set()
@@ -355,7 +448,8 @@ def main():
         threading.Thread(target=drain_errors, daemon=True).start()
         worker = threading.Thread(target=receive, daemon=True)
         worker.start()
-        print('Saving on LAPTOP:', folder)
+        print('Session folder on LAPTOP:', folder)
+        print('Preview only. Press Start recording; saving begins after the 3-second countdown.')
         print('Close the dashboard to stop. Allow the final saving message before closing VS Code.')
         fig = plt.figure(figsize=(14, 9))
         grid = fig.add_gridspec(3, 2)
@@ -376,7 +470,96 @@ def main():
         for ax, title in [(ax_ecg, 'ECG raw ADC'), (ax_ppg, 'PPG raw ADC')]:
             ax.set(title=title, xlabel='Pi read time (s)', ylabel='ADC', ylim=(0, 1023), xlim=(0, 5))
             ax.grid(alpha=0.25)
+        fig.tight_layout(rect=(0, .07, 1, .92), h_pad=2.5)
+        button_ax = fig.add_axes([0.28, 0.015, 0.20, 0.05])
+        record_button = Button(button_ax, 'Start recording', color='#f3c6c6', hovercolor='#ee9b9b')
+        stop_button_ax = fig.add_axes([0.52, 0.015, 0.20, 0.05])
+        stop_button = Button(stop_button_ax, 'Stop recording', color='#dddddd', hovercolor='#cccccc')
+        def begin_countdown(_):
+            if recording.is_set() or stop_recording_request.is_set() or countdown_deadline[0] is not None:
+                return
+            recording_finished.clear()
+            recording_finished_displayed[0] = False
+            countdown_deadline[0] = time.monotonic() + 3.0
+            meta['status'] = 'countdown'
+            save_meta()
+            record_button.label.set_text('Starting in 3...')
+            stop_button.label.set_text('Stop recording')
+            stop_button.color = '#dddddd'
+            stop_button.hovercolor = '#cccccc'
+            stop_button_ax.set_facecolor('#dddddd')
+            fig.canvas.draw_idle()
+        record_button.on_clicked(begin_countdown)
+        def end_recording(_):
+            if countdown_deadline[0] is not None and not recording.is_set():
+                countdown_deadline[0] = None
+                meta['status'] = 'preview'
+                save_meta()
+                status[0] = 'Countdown cancelled - preview only'
+                label = 'Start recording' if active_take_number[0] == 0 else 'Start next recording'
+                record_button.label.set_text(label)
+                fig.canvas.draw_idle()
+                return
+            if not recording.is_set() or stop_recording_request.is_set():
+                return
+            stop_recording_request.set()
+            status[0] = 'Stopping recording...'
+            stop_button.label.set_text('Stopping...')
+            fig.canvas.draw_idle()
+        stop_button.on_clicked(end_recording)
+        recording_finished_displayed = [False]
         def update(_):
+            deadline = countdown_deadline[0]
+            if deadline is not None and not recording.is_set():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    active_take_number[0] += 1
+                    counts['bio'] = 0
+                    counts['frame'] = 0
+                    take_meta = dict(number=active_take_number[0],
+                                     start_laptop_utc=datetime.now(timezone.utc).isoformat(),
+                                     max_duration_s=MAX_RECORDING_SECONDS,
+                                     status='recording')
+                    meta['takes'].append(take_meta)
+                    active_take_meta[0] = take_meta
+                    meta['status'] = 'recording'
+                    save_meta()
+                    recording_started_at[0] = time.monotonic()
+                    recording_deadline[0] = recording_started_at[0] + MAX_RECORDING_SECONDS
+                    recording.set()
+                    countdown_deadline[0] = None
+                    status[0] = f'Recording take {active_take_number[0]:03d} on laptop'
+                    record_button.label.set_text(f'Recording {active_take_number[0]:03d}')
+                    record_button.color = '#e56b6f'
+                    record_button.hovercolor = '#e56b6f'
+                    button_ax.set_facecolor('#e56b6f')
+                    stop_button.label.set_text('Stop recording')
+                    stop_button.color = '#f3c6c6'
+                    stop_button.hovercolor = '#ee9b9b'
+                    stop_button_ax.set_facecolor('#f3c6c6')
+                else:
+                    seconds = max(1, int(remaining + 0.999))
+                    status[0] = f'Recording starts in {seconds}'
+                    record_button.label.set_text(f'Starting in {seconds}...')
+            if recording.is_set() and recording_deadline[0] is not None:
+                remaining = recording_deadline[0] - time.monotonic()
+                if remaining <= 0 and not stop_recording_request.is_set():
+                    stop_recording_request.set()
+                    status[0] = '15-second limit reached - stopping recording...'
+                    stop_button.label.set_text('Stopping...')
+                elif not stop_recording_request.is_set():
+                    status[0] = (f'Recording take {active_take_number[0]:03d} on laptop '
+                                 f'- {max(0.0, remaining):.1f}s remaining')
+            if recording_finished.is_set() and not recording_finished_displayed[0]:
+                recording_finished_displayed[0] = True
+                record_button.label.set_text('Start next recording')
+                record_button.color = '#f3c6c6'
+                record_button.hovercolor = '#ee9b9b'
+                button_ax.set_facecolor('#f3c6c6')
+                stop_button.label.set_text('Stopped')
+                stop_button.color = '#dddddd'
+                stop_button.hovercolor = '#dddddd'
+                stop_button_ax.set_facecolor('#dddddd')
             with display_lock:
                 rows = list(bio_display)
                 frame = latest_frame[0]
@@ -407,11 +590,10 @@ def main():
                     ax.set_xlim(max(0, data[-1, 0]-5), max(5, data[-1, 0]))
             if frame is not None:
                 image.set_data(frame)
-            ages = ' | '.join(f'{k}: {counts[k]} (age {time.monotonic()-v:.1f}s)' if v is not None else f'{k}: waiting' for k, v in last_seen.items())
+            ages = ' | '.join(f'{k}: {counts[k]} saved (age {time.monotonic()-v:.1f}s)' if v is not None else f'{k}: waiting' for k, v in last_seen.items())
             fig.suptitle(status[0] + '\n' + ages, fontsize=10)
             return image, ecg_line, ppg_line, hr_line
         animation = FuncAnimation(fig, update, interval=100, cache_frame_data=False)
-        fig.tight_layout(rect=(0, 0, 1, .92), h_pad=2.5)
         plt.show()
     finally:
         if stdin is not None:
@@ -432,7 +614,7 @@ def main():
         if stderr_lines:
             (folder / 'pi_stderr.txt').write_text('\n'.join(stderr_lines), encoding='utf-8')
         print('Recording closed. Laptop folder:', folder)
-        print('Samples / frames:', counts)
+        print('Total samples / frames:', total_counts)
 
 if __name__ == '__main__':
     try:
