@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+
+# 녹화 영상과 압축본은 용량이 크고 얼굴이 담겨 있어 올리지 않음
+*.avi
+*.mp4
+*.zip
+recordings/REC_*/
+recordings/pi_stderr_*.txt
+
+# Nano 단독 뷰어 기록
+firmware/ppg_ecg_nano/vitals_log_*.csv
