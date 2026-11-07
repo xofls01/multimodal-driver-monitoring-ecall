@@ -433,7 +433,7 @@ def print_help() -> None:
   scenario danger                 Normal 10초 후 Danger 유지
   scenario caution                Normal 5초, Caution 8초, Normal
   scenario stop                   진행 중인 상태 시나리오 중단
-  can normal|danger               CAN CSV 재생 시작
+  can normal|caution|danger       CAN CSV 재생 시작
   can stop                        CAN 재생 중지, 정속주행 복귀
   can restart                     로드된 CAN 시나리오 처음부터 재생
   can status                      CAN 재생 시간과 판단 결과
@@ -588,6 +588,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--send-rate", type=float, default=20.0)
     data_dir = Path(__file__).resolve().parents[1] / "data"
     parser.add_argument("--can-normal-csv", type=Path, default=data_dir / "can_normal_60kmh_15s.csv")
+    parser.add_argument("--can-caution-csv", type=Path, default=data_dir / "can_caution_drowsy_drift_15s.csv")
     parser.add_argument("--can-danger-csv", type=Path, default=data_dir / "can_danger_steer_accel_pulse_15s.csv")
     parser.add_argument("--can-demo-mode", action="store_true")
     parser.add_argument("--can-end-behavior", choices=("normal", "hold"), default="normal")
@@ -613,7 +614,11 @@ def main() -> None:
     can_player = CanScenarioPlayer(
         can_adapter.on_start, can_adapter.on_sample, can_adapter.on_finish,
     )
-    can_paths = {"normal": args.can_normal_csv, "danger": args.can_danger_csv}
+    can_paths = {
+        "normal": args.can_normal_csv,
+        "caution": args.can_caution_csv,
+        "danger": args.can_danger_csv,
+    }
     server_thread = threading.Thread(
         target=server_loop,
         args=(args.host, args.port, shared, args.send_rate),

@@ -99,7 +99,7 @@ quit
 
 ## CAN CSV 재생 및 이상 거동 판단
 
-`Unity/data/can_normal_60kmh_15s.csv`, `Unity/data/can_danger_steer_accel_15s.csv`, `Unity/data/can_danger_steer_accel_pulse_15s.csv`는 실제 차량 CAN/DBC가 아닌 가상 통합 시험 데이터입니다. Python은 시작 시 CSV를 한 번 읽고 `time_s`에 맞춰 5Hz로 적용합니다. 기존 NDJSON은 20Hz를 유지하며 그 사이에는 마지막 CAN 입력을 반복 전송합니다.
+`Unity/data/can_normal_60kmh_15s.csv`, `Unity/data/can_caution_drowsy_drift_15s.csv`, `Unity/data/can_danger_steer_accel_15s.csv`, `Unity/data/can_danger_steer_accel_pulse_15s.csv`는 실제 차량 CAN/DBC가 아닌 가상 통합 시험 데이터입니다. Python은 재생 시작 시 CSV를 한 번 읽고 `time_s`에 맞춰 5Hz로 적용합니다. 기존 NDJSON은 20Hz를 유지하며 그 사이에는 마지막 CAN 입력을 반복 전송합니다.
 
 ```bash
 python3 Unity/python/vehicle_tcp_server.py --can-demo-mode
@@ -109,6 +109,7 @@ Unity 차량이 Cruise로 약 60km/h에 도달한 뒤 Python 콘솔에서 실행
 
 ```text
 can normal     # 정상 CSV 15초 재생
+can caution    # 두 번의 완만한 졸음 조향·복귀 CSV 15초 재생
 can danger     # 급조향·급가속 위험 CSV 15초 재생
 can status     # 재생 시간, 위험점수, 활성 조건, Unity 비상 단계
 can stop       # 재생 중지 및 Cruise 복귀 (Danger는 잠금 유지)
@@ -119,7 +120,9 @@ can end hold   # 자연 종료 후 마지막 CAN 입력 유지
 can end normal # 자연 종료 후 Cruise 복귀 (기본값)
 ```
 
-기본 `can danger`는 급격히 좌우로 바뀌는 조향과 급가속을 함께 담은 `can_danger_steer_accel_pulse_15s.csv`를 재생합니다. 이전의 작은 조향 시나리오를 쓰려면 실행 시 `--can-danger-csv Unity/data/can_danger_steer_accel_15s.csv`를 지정합니다. 경로는 `--can-normal-csv`, `--can-danger-csv`로 바꿀 수 있습니다. `--can-max-steering-angle` 기본값 30도는 Unity 차량의 `maxSteeringAngle`과 맞춰야 합니다. 시작 시 `--can-end-behavior hold|normal`도 지정할 수 있습니다.
+기본 `can danger`는 급격히 좌우로 바뀌는 조향과 급가속을 함께 담은 `can_danger_steer_accel_pulse_15s.csv`를 재생합니다. 이전의 작은 조향 시나리오를 쓰려면 실행 시 `--can-danger-csv Unity/data/can_danger_steer_accel_15s.csv`를 지정합니다. 경로는 `--can-normal-csv`, `--can-caution-csv`, `--can-danger-csv`로 바꿀 수 있습니다. `--can-max-steering-angle` 기본값 30도는 Unity 차량의 `maxSteeringAngle`과 맞춰야 합니다. 시작 시 `--can-end-behavior hold|normal`도 지정할 수 있습니다.
+
+`can caution`은 완만한 조향 움직임을 재생합니다. CSV의 `ground_truth_state=Caution`은 검증용 정답으로만 사용하며 Unity 경고 상태를 직접 바꾸지 않습니다. 경고 UI와 소리를 확인하려면 모델이 Caution을 보내거나 콘솔에서 `state caution`을 따로 입력합니다.
 
 `normal` 종료는 CAN 제어를 Cruise로 돌리고, 데모 모드에서 Danger가 미확정이면 운전자 상태도 Normal로 돌립니다. 일반 모드에서는 외부에서 정한 운전자 상태를 바꾸지 않습니다. Danger가 확정된 경우에는 `hold` 설정과 관계없이 CAN 제어 입력을 계속 차단합니다.
 

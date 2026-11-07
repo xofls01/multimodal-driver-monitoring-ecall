@@ -19,6 +19,7 @@ from vehicle_tcp_server import SharedData, parse_args, publish_prediction
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 NORMAL_CSV = DATA_DIR / "can_normal_60kmh_15s.csv"
+CAUTION_CSV = DATA_DIR / "can_caution_drowsy_drift_15s.csv"
 DANGER_CSV = DATA_DIR / "can_danger_steer_accel_15s.csv"
 PULSE_DANGER_CSV = DATA_DIR / "can_danger_steer_accel_pulse_15s.csv"
 
@@ -123,6 +124,34 @@ class CanIntegrationTests(unittest.TestCase):
                             for row in scenario.rows if row.signals.time_s >= 9.4))
         with patch("sys.argv", ["vehicle_tcp_server.py"]):
             self.assertEqual(parse_args().can_danger_csv, PULSE_DANGER_CSV)
+
+    def test_caution_csv_replays_without_publishing_final_state(self) -> None:
+        with patch("sys.argv", ["vehicle_tcp_server.py"]):
+            path = parse_args().can_caution_csv
+        self.assertEqual(path, CAUTION_CSV)
+
+        scenario = load_can_scenario(path, "caution")
+        self.assertEqual(len(scenario.rows), 75)
+        caution_times = [row.signals.time_s for row in scenario.rows
+                         if row.ground_truth_state == "Caution"]
+        self.assertEqual((min(caution_times), max(caution_times)), (3.0, 9.8))
+
+        shared = SharedData()
+        adapter = CanAdapter(shared, publish_prediction, CanPlaybackConfig(demo_mode=True))
+        adapter.on_start(scenario)
+        for row in scenario.rows:
+            adapter.on_sample(row)
+            if row.signals.time_s == 3.4:
+                command, _ = shared.snapshot()
+                self.assertEqual(command.can_scenario, "caution")
+                self.assertLess(command.steering, 0.0)
+                self.assertEqual(command.driver_state, "Normal")
+        command, _ = shared.snapshot()
+        self.assertEqual(command.driver_state, "Normal")
+        self.assertFalse(command.can_anomaly)
+        self.assertFalse(shared.can_control_locked)
+        adapter.on_finish(False)
+        self.assertEqual(shared.snapshot()[0].control_mode, "cruise")
 
     @staticmethod
     def _write_rows(path: Path, header: list[str], rows: list[list[str]]) -> None:
