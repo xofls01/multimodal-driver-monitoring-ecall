@@ -14,6 +14,58 @@ public static class BasicDrivingSceneBuilder
     private const string RootFolder = "Assets/Stage1BasicVehicle";
     private const string MaterialFolder = RootFolder + "/Materials";
     private const string SceneFolder = RootFolder + "/Scenes";
+    private const float GrassWidth = 100f;
+
+    [MenuItem("Tools/Emergency Driving Demo/Add Grass To Current Scene")]
+    public static void AddGrassToCurrentScene()
+    {
+        EndlessRoadController controller =
+            Object.FindFirstObjectByType<EndlessRoadController>();
+        if (controller == null || controller.roadSegments == null)
+        {
+            EditorUtility.DisplayDialog("Grass Ground", "현재 씬에서 재활용 도로를 찾지 못했습니다.", "확인");
+            return;
+        }
+
+        EnsureFolder(RootFolder);
+        EnsureFolder(MaterialFolder);
+        Material grassMaterial = CreateGrassMaterial();
+        int added = 0;
+
+        foreach (Transform segment in controller.roadSegments)
+        {
+            if (segment == null)
+            {
+                continue;
+            }
+
+            Transform road = segment.Find("MainRoad");
+            Transform shoulder = segment.Find("Shoulder");
+            if (road == null || shoulder == null)
+            {
+                continue;
+            }
+
+            float leftEdge = road.localPosition.x - road.localScale.x * 0.5f;
+            float rightEdge = shoulder.localPosition.x + shoulder.localScale.x * 0.5f;
+            float groundTop = road.localPosition.y + road.localScale.y * 0.5f;
+            added += AddGrassToSegment(
+                segment,
+                grassMaterial,
+                leftEdge,
+                rightEdge,
+                groundTop,
+                road.localScale.z
+            );
+        }
+
+        if (added > 0)
+        {
+            EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
+        }
+        AssetDatabase.SaveAssets();
+        EditorUtility.DisplayDialog("Grass Ground", $"잔디 지면 {added}개를 추가했습니다.", "확인");
+    }
 
     [MenuItem("Tools/Emergency Driving Demo/Create Stage 1 Scene")]
     public static void CreateStage1Scene()
@@ -41,6 +93,7 @@ public static class BasicDrivingSceneBuilder
             MaterialFolder + "/Shoulder.mat",
             new Color(0.25f, 0.26f, 0.25f)
         );
+        Material grassMaterial = CreateGrassMaterial();
         Material lineMaterial = GetOrCreateMaterial(
             MaterialFolder + "/RoadLine.mat",
             new Color(0.95f, 0.94f, 0.82f)
@@ -72,6 +125,7 @@ public static class BasicDrivingSceneBuilder
         EndlessRoadController roadController = CreateEnvironment(
             roadMaterial,
             shoulderMaterial,
+            grassMaterial,
             lineMaterial
         );
         BasicWheelVehicleController vehicle = CreateVehicle(
@@ -112,7 +166,7 @@ public static class BasicDrivingSceneBuilder
         {
             EditorUtility.DisplayDialog(
                 "Stage 1 Scene Created",
-                "정속주행 차량, 재활용 도로 4개, TCP, 경고 UI, 비상등을 생성했습니다.\n\nPlay하면 60km/h 정속주행을 시작합니다. C: Cruise, M: 모드, R: 초기화",
+                "정속주행 차량, 양쪽 잔디 지면이 포함된 재활용 도로 4개, TCP, 경고 UI, 비상등을 생성했습니다.\n\nPlay하면 60km/h 정속주행을 시작합니다. C: Cruise, M: 모드, R: 초기화",
                 "확인"
             );
         }
@@ -135,6 +189,7 @@ public static class BasicDrivingSceneBuilder
     private static EndlessRoadController CreateEnvironment(
         Material roadMaterial,
         Material shoulderMaterial,
+        Material grassMaterial,
         Material lineMaterial
     )
     {
@@ -173,6 +228,8 @@ public static class BasicDrivingSceneBuilder
                 true,
                 true
             );
+
+            AddGrassToSegment(segment.transform, grassMaterial, -6f, 7f, 0f, segmentLength);
 
             CreateSegmentLine("LeftEdge", -5.9f, segmentLength, lineMaterial, segment.transform);
             CreateSegmentLine("ShoulderBoundary", 3f, segmentLength, lineMaterial, segment.transform);
@@ -213,8 +270,13 @@ public static class BasicDrivingSceneBuilder
 
         Rigidbody rigidbody = vehicle.AddComponent<Rigidbody>();
         rigidbody.mass = 1400f;
+#if UNITY_6000_0_OR_NEWER
+        rigidbody.linearDamping = 0.02f;
+        rigidbody.angularDamping = 0.6f;
+#else
         rigidbody.drag = 0.02f;
         rigidbody.angularDrag = 0.6f;
+#endif
         rigidbody.interpolation = RigidbodyInterpolation.Interpolate;
         rigidbody.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
 
@@ -659,6 +721,55 @@ public static class BasicDrivingSceneBuilder
         }
         EditorUtility.SetDirty(material);
         return material;
+    }
+
+    private static Material CreateGrassMaterial()
+    {
+        Material grassMaterial = GetOrCreateMaterial(
+            MaterialFolder + "/Grass.mat",
+            new Color(0.22f, 0.43f, 0.16f)
+        );
+        ConfigureMetallicSurface(grassMaterial, 0f, 0.05f);
+        return grassMaterial;
+    }
+
+    private static int AddGrassToSegment(
+        Transform segment,
+        Material material,
+        float leftEdge,
+        float rightEdge,
+        float groundTop,
+        float length
+    )
+    {
+        int added = 0;
+        if (segment.Find("LeftGrass") == null)
+        {
+            CreateCube(
+                "LeftGrass",
+                new Vector3(leftEdge - GrassWidth * 0.5f, groundTop - 0.1f, 0f),
+                new Vector3(GrassWidth, 0.2f, length),
+                material,
+                segment,
+                true,
+                true
+            );
+            added++;
+        }
+        if (segment.Find("RightGrass") == null)
+        {
+            CreateCube(
+                "RightGrass",
+                new Vector3(rightEdge + GrassWidth * 0.5f, groundTop - 0.1f, 0f),
+                new Vector3(GrassWidth, 0.2f, length),
+                material,
+                segment,
+                true,
+                true
+            );
+            added++;
+        }
+        return added;
     }
 
     private static void ConfigureMetallicSurface(

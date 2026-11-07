@@ -53,6 +53,15 @@ public class VehicleControlPacket
     public bool remote_enabled = true;
     public string control_mode;
     public string driver_state;
+    public bool can_active;
+    public string can_scenario;
+    public float can_time_s;
+    public bool can_anomaly;
+    public int can_risk_score;
+    public float can_steering;
+    public float can_throttle;
+    public float can_brake;
+    public float can_target_speed_kph;
 }
 
 public class UnityTcpVehicleBridge : MonoBehaviour
@@ -210,6 +219,12 @@ public class UnityTcpVehicleBridge : MonoBehaviour
     )
     {
         if (vehicle == null)
+        {
+            return;
+        }
+
+        // 최종 Danger 이후에는 CAN/Remote 패킷이 비상 제어를 건드리지 않습니다.
+        if (emergencyController != null && emergencyController.IsEmergencyActive)
         {
             return;
         }

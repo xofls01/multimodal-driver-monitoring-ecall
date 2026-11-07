@@ -10,6 +10,7 @@
 - 밝은 웜 화이트 차체와 전면 다크/후면 레드 램프 베이스
 - 램프 베이스 위 전·후방 좌우 주황색 비상등 4개의 실시간 점멸 표시
 - Danger 진입 시 비상 정차 상태 머신, 비상 UI, 비상등 점멸, e-Call 상태
+- 5Hz 가상 CAN CSV 재생, 1초 창 이상 탐지, 선택적 CAN 단독 Danger 데모
 
 ## 처음 적용하는 순서
 
@@ -20,17 +21,19 @@
 5. 별도 터미널에서 아래 Python 서버를 실행해 상태 시나리오를 시험합니다.
 
 > Scene Builder를 다시 실행하면 같은 경로의 데모 Scene을 새 구성으로 다시 저장합니다.
+> 이미 수정 중인 Scene은 `Tools > Emergency Driving Demo > Add Grass To Current Scene`을 실행하고 저장하면 기존 오브젝트를 유지한 채 잔디 지면만 추가할 수 있습니다.
 
 ## 제어 우선순위
 
 최종 WheelCollider 토크, 브레이크, 조향은 `BasicWheelVehicleController`만 적용합니다.
 
 ```text
-Emergency > 명시적 Remote > Cruise > Manual
+Emergency > CAN 재생(Remote) > 일반 Remote > Cruise > Manual
 ```
 
 - `Emergency`: Danger가 한 번 감지되면 Reset 전까지 잠깁니다.
 - `Remote`: Python 패킷의 `control_mode="remote"`일 때만 활성화됩니다.
+- `CAN 재생`: 기존 Remote 패킷을 이용하며, 재생 중 일반 제어 명령은 받지 않습니다. 최종 Danger 이후 CAN 입력은 Python에서 잠기고 Unity 비상제어가 Remote 입력을 무시합니다.
 - `Cruise`: 기본 ON이며 TCP 연결 여부와 무관하게 동작합니다.
 - `Manual`: Cruise를 끄고 Remote가 아닌 경우 키보드 입력을 사용합니다.
 
@@ -52,7 +55,7 @@ deadband 내부      : throttle = 0, brake = 0
 
 ## 도로 세그먼트 재활용
 
-Scene Builder는 `RoadSegment_0`~`RoadSegment_3` 네 개만 만듭니다. 각 세그먼트에는 일반 도로 `X=-6~3`, 넓어진 갓길 `X=3~7`, 실선과 점선이 들어 있습니다. 정차 목표는 도로·갓길 콜라이더의 경계와 차량 차체·바퀴 폭을 읽어 양쪽 여유가 같도록 계산합니다. 기본 구성의 목표는 `X=5.0`입니다.
+Scene Builder는 `RoadSegment_0`~`RoadSegment_3` 네 개만 만듭니다. 각 세그먼트에는 일반 도로 `X=-6~3`, 갓길 `X=3~7`, 양쪽 100m 폭의 잔디 지면, 실선과 점선이 들어 있습니다. 잔디에도 콜라이더가 있어 도로를 벗어난 차량이 곧바로 추락하지 않으며, 도로 세그먼트와 함께 계속 이어집니다. 정차 목표는 도로·갓길 콜라이더의 경계와 차량 차체·바퀴 폭을 읽어 양쪽 여유가 같도록 계산합니다. 기본 구성의 목표는 `X=5.0`입니다.
 
 차량보다 충분히 뒤로 간 가장 뒤 세그먼트를 현재 가장 앞 세그먼트 다음 위치로 옮깁니다. 런타임 `Instantiate`/`Destroy`가 없고 GameObject 수가 늘지 않습니다. R로 차량을 시작점에 되돌리면 도로도 초기 위치로 복귀합니다.
 
@@ -94,6 +97,40 @@ quit
 
 시나리오는 별도 스레드에서 상태를 바꾸므로 20Hz TCP 송수신과 콘솔 입력은 계속 동작합니다. `scenario stop`은 현재 상태를 유지한 채 타이머만 중단합니다. `state ...` 명령은 실행 중 시나리오를 중단한 뒤 상태만 변경합니다.
 
+## CAN CSV 재생 및 이상 거동 판단
+
+`Unity/data/can_normal_60kmh_15s.csv`, `Unity/data/can_danger_steer_accel_15s.csv`, `Unity/data/can_danger_steer_accel_pulse_15s.csv`는 실제 차량 CAN/DBC가 아닌 가상 통합 시험 데이터입니다. Python은 시작 시 CSV를 한 번 읽고 `time_s`에 맞춰 5Hz로 적용합니다. 기존 NDJSON은 20Hz를 유지하며 그 사이에는 마지막 CAN 입력을 반복 전송합니다.
+
+```bash
+python3 Unity/python/vehicle_tcp_server.py --can-demo-mode
+```
+
+Unity 차량이 Cruise로 약 60km/h에 도달한 뒤 Python 콘솔에서 실행합니다.
+
+```text
+can normal     # 정상 CSV 15초 재생
+can danger     # 급조향·급가속 위험 CSV 15초 재생
+can status     # 재생 시간, 위험점수, 활성 조건, Unity 비상 단계
+can stop       # 재생 중지 및 Cruise 복귀 (Danger는 잠금 유지)
+can restart    # 이미 로드한 CSV를 처음부터 재생
+can demo off   # 일반 모드: CAN 결과만 저장, 최종 Danger 미발행
+can demo on    # CAN 단독 데모: 이상 확정 시 publish_prediction(..., "Danger")
+can end hold   # 자연 종료 후 마지막 CAN 입력 유지
+can end normal # 자연 종료 후 Cruise 복귀 (기본값)
+```
+
+기본 `can danger`는 급격히 좌우로 바뀌는 조향과 급가속을 함께 담은 `can_danger_steer_accel_pulse_15s.csv`를 재생합니다. 이전의 작은 조향 시나리오를 쓰려면 실행 시 `--can-danger-csv Unity/data/can_danger_steer_accel_15s.csv`를 지정합니다. 경로는 `--can-normal-csv`, `--can-danger-csv`로 바꿀 수 있습니다. `--can-max-steering-angle` 기본값 30도는 Unity 차량의 `maxSteeringAngle`과 맞춰야 합니다. 시작 시 `--can-end-behavior hold|normal`도 지정할 수 있습니다.
+
+`normal` 종료는 CAN 제어를 Cruise로 돌리고, 데모 모드에서 Danger가 미확정이면 운전자 상태도 Normal로 돌립니다. 일반 모드에서는 외부에서 정한 운전자 상태를 바꾸지 않습니다. Danger가 확정된 경우에는 `hold` 설정과 관계없이 CAN 제어 입력을 계속 차단합니다.
+
+CAN 입력은 조향각 ÷ 최대 조향각, 가속·브레이크 페달 % ÷ 100으로 정규화한 뒤 Remote 입력으로 보냅니다. 위치·속도 Transform을 덮어쓰지 않습니다. CSV 속도는 제어 목표가 아니라 Unity의 실제 `speed_kph`와 비교하는 검증값이므로, 물리·토크 차이 때문에 CSV 속도가 그대로 재현된다고 보장하지 않습니다.
+
+이상 판단기는 최근 5개 샘플에서 급조향, 0.5초 내 급가속 페달, 큰 yaw rate, 무제동 속도 증가, 좌우 바퀴 속도 차이를 각각 1점으로 계산합니다. 2점 이상이 0.4초 지속되면 `can_anomaly=true`로 확정합니다. 임계값은 `can_anomaly.py`의 `CanAnomalyConfig`에서 조정합니다. `ground_truth_*`는 탐지 입력에서 제외하며 확정 시각과의 비교에만 사용합니다. 일반 모드는 CAN 결과만 공유하고 최종 운전자 상태는 바꾸지 않습니다. 생체신호·카메라가 연결되면 `can_adapter.py`의 `FinalStateRouter`에서 CAN 결과와 융합하여 기존 `publish_prediction(shared, label)`을 호출하면 됩니다.
+
+오프라인 검증: `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s Unity/python -p 'test_can_integration.py'`
+
+Danger 재시험은 `can stop`, `state normal`, Unity `R`, `can restart` 순서로 진행합니다. 정차 여부와 실제 약 60km/h 주행은 Unity Play에서 별도로 확인해야 합니다.
+
 ## 기능별 시험 절차와 예상 결과
 
 ### 정속주행과 도로
@@ -116,15 +153,15 @@ quit
 1. `cruise`를 입력하고 `scenario danger`를 실행합니다.
 2. Normal로 10초 주행 후 Danger가 20Hz 패킷에 계속 포함됩니다.
 3. Caution 메시지가 닫히고 비상 UI가 나타나며 차량 전·후방 비상등이 즉시 깜빡입니다.
-4. 차량이 최소 약 55m 길이의 완만한 S자 경로를 따라 감속과 조향을 동시에 진행합니다. 진입 속도가 높으면 경로도 자동으로 길어집니다.
-5. 실제 횡속도를 반영해 갓길 중앙에 진입하고, 차체가 전방과 평행해진 뒤 정차합니다.
+4. Danger 직후 가속을 끊고 감속하며 차체 방향과 횡속도를 안정화합니다.
+5. 현재 위치·진행 방향·횡속도를 매 물리 프레임 반영해 갓길 중앙으로 이동합니다. 갓길 중앙에서 방향과 횡속도가 안정되면 제동해 정차합니다.
 6. HUD의 단계가 아래 순서로 바뀝니다.
 
 ```text
 SignalAndSlow -> MoveToShoulder -> StraightenAndBrake -> Stopped
 ```
 
-`Stopped`에서는 브레이크, `hazard=true`, 비상등 점멸, `ecall=true`가 유지됩니다. 다시 시험하려면 Python에서 `state normal`을 보낸 뒤 Unity에서 R을 누릅니다.
+급조향으로 횡속도가 생기면 예상 정지 위치를 반영해 목표 지점 전에 반대 조향을 시작합니다. 도로 경계를 넘을 것으로 예측되더라도 잔디 지면 위에서 갓길 복귀를 계속 시도합니다. 지면에서 크게 이탈하거나 진행 방향을 잃으면 `StopInPlace -> Stopped`로 전환해 조향을 유지하며 현재 위치에서 제동합니다. 정차 시 차량 위치·방향을 강제로 옮기지 않습니다. `Stopped`에서는 브레이크, `hazard=true`, 비상등 점멸, `ecall=true`가 유지됩니다. 다시 시험하려면 Python에서 `state normal`을 보낸 뒤 Unity에서 R을 누릅니다.
 
 비상 상황과 별개로 표시만 확인하려면 Python 콘솔에서 `hazard on`과 `hazard off`를 입력합니다. Cruise/Manual/Remote 어느 일반 제어 모드에서도 동작하며, Danger 비상 제어 중에는 안전상 외부 `hazard off`보다 비상 점멸이 우선합니다.
 
@@ -145,7 +182,7 @@ Manual 운전을 하려면 `C`로 Cruise를 끄고 Manual 모드를 사용합니
 
 - `CruiseControlController`: 목표 속도, deadband, throttle/brake Kp, 최대 입력
 - `BasicWheelVehicleController`: 모터/브레이크 토크, 최대 속도, 조향각, Remote timeout
-- `EmergencyPullOverController`: 도로·갓길·차체 콜라이더 참조, 좌우 여유 거리, 전방 주시 거리, 제동/조향 값과 입력 변화율
+- `EmergencyPullOverController`: 도로·갓길·차체 콜라이더 참조, 좌우 여유 거리, 안정화·갓길 도착 속도, 제동/조향 값과 입력 변화율
 - `EndlessRoadController`: 세그먼트 길이, 후방 재활용 거리, 차량/세그먼트 참조
 - `DriverStateWarningUI`: 경고음 볼륨, 주파수, 길이와 Canvas 참조
 - `HazardLightController`: 전·후방 램프 Renderer 참조, 점멸 간격(기본 0.45초)

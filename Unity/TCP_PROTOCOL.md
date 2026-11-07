@@ -62,6 +62,10 @@ TCP는 패킷 경계를 보장하지 않으므로 양쪽 모두 줄바꿈까지 
 | `control_mode` | `cruise`, `remote`, `manual` | 명시적인 일반 제어 모드 |
 | `remote_enabled` | Boolean | `control_mode` 없는 구버전 패킷의 호환 필드 |
 | `driver_state` | `Normal`, `Caution`, `Danger` | 운전자 분류 결과 (대소문자 무관) |
+| `can_active`, `can_scenario`, `can_time_s` | Boolean, String, 초 | CAN 재생 상태와 CSV 시각 |
+| `can_anomaly`, `can_risk_score` | Boolean, 정수 | CAN 판단 결과 |
+| `can_steering`, `can_throttle`, `can_brake` | 정규화된 입력 | 마지막 CAN 원본에서 변환한 값 (Danger 이후에도 진단값으로 남음) |
+| `can_target_speed_kph` | km/h | CSV 속도 비교값, 직접 속도 제어에 사용하지 않음 |
 
 ### 모드 해석 규칙
 
@@ -71,6 +75,8 @@ TCP는 패킷 경계를 보장하지 않으므로 양쪽 모두 줄바꿈까지 
 4. 두 모드 필드 없이 `driver_state`만 온 패킷은 현재 제어 모드를 그대로 유지합니다.
 
 Python 기본 패킷은 `control_mode="cruise"`, `remote_enabled=false`입니다. `set`, `forward`, `left`, `right`, `stop`, `remote` 명령은 두 필드를 각각 `remote`, `true`로 바꿉니다.
+
+CAN CSV 재생은 같은 `vehicle_control` 패킷을 사용하며 `control_mode="remote"`로 5Hz의 마지막 입력을 20Hz에 실어 보냅니다. `can_*` 필드는 선택적인 진단 정보로, 누락되어도 기존 Unity 역직렬화와 일반 주행은 동작합니다. CAN 단독 데모 모드에서 이상이 확정되면 기존 `driver_state="Danger"`가 전송되고 Python의 원격 조향·가속·브레이크 값은 0으로 잠깁니다. Unity는 비상제어 활성화 후 일반 Remote 입력을 적용하지 않습니다.
 
 ## 운전자 상태와 Unity 동작
 

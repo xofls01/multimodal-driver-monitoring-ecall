@@ -14,7 +14,12 @@ import socket
 import threading
 import time
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
+
+from can_adapter import CanAdapter, CanPlaybackConfig
+from can_anomaly import CanAnomalyConfig, CanDecision
+from can_scenario import CanScenarioPlayer, CanSignals
 
 
 @dataclass
@@ -29,6 +34,15 @@ class ControlCommand:
     remote_enabled: bool = False
     control_mode: str = "cruise"
     driver_state: str = "Normal"
+    can_active: bool = False
+    can_scenario: str = ""
+    can_time_s: float = 0.0
+    can_anomaly: bool = False
+    can_risk_score: int = 0
+    can_steering: float = 0.0
+    can_throttle: float = 0.0
+    can_brake: float = 0.0
+    can_target_speed_kph: float = 0.0
 
     def clamp(self) -> None:
         self.throttle = min(1.0, max(0.0, self.throttle))
@@ -49,19 +63,47 @@ class SharedData:
         self.latest_state: dict[str, Any] | None = None
         self.connected_address: tuple[str, int] | None = None
         self.running = True
+        self.latest_can_state: CanSignals | None = None
+        self.can_decision: CanDecision | None = None
+        self.can_control_locked = False
 
     def update_command(self, **changes: Any) -> None:
         with self.lock:
+            if self.command.can_active and any(key in changes for key in (
+                "control_mode", "remote_enabled", "throttle", "brake", "steering"
+            )):
+                raise ValueError("CAN 재생 중에는 일반 제어 명령을 사용할 수 없습니다. can stop 먼저 실행하세요.")
             for key, value in changes.items():
                 setattr(self.command, key, value)
             self.command.clamp()
+            if self.command.driver_state == "Danger":
+                self.can_control_locked = True
+                if self.command.can_active:
+                    self.command.throttle = 0.0
+                    self.command.brake = 0.0
+                    self.command.steering = 0.0
+                self.command.hazard = True
 
     def set_driver_state(self, predicted_state: str) -> None:
         """상태만 변경합니다. Cruise/Remote/Manual 모드에는 손대지 않습니다."""
         state = predicted_state.strip().capitalize()
         if state not in {"Normal", "Caution", "Danger"}:
             raise ValueError("운전자 상태는 Normal, Caution, Danger 중 하나여야 합니다.")
+        with self.lock:
+            previous = self.command.driver_state
         self.update_command(driver_state=state)
+        if state == "Normal":
+            with self.lock:
+                if self.can_control_locked and not self.command.can_active:
+                    self.command.control_mode = "cruise"
+                    self.command.remote_enabled = False
+                    self.command.throttle = 0.0
+                    self.command.brake = 0.0
+                    self.command.steering = 0.0
+                    self.command.hazard = False
+                    self.command.ecall = False
+        if previous != state:
+            print(f"[MODEL] final driver state {previous} -> {state}")
 
     def next_command_json(self) -> str:
         with self.lock:
@@ -77,6 +119,67 @@ class SharedData:
             command = ControlCommand(**asdict(self.command))
             state = None if self.latest_state is None else dict(self.latest_state)
             return command, state
+
+    def begin_can_playback(self, name: str) -> None:
+        with self.lock:
+            if self.command.driver_state == "Danger":
+                raise ValueError("Danger 상태입니다. Unity R 초기화 전에 state normal을 전송하세요.")
+            phase = None if self.latest_state is None else self.latest_state.get("emergency_phase")
+            if phase not in (None, "Idle", "Unavailable"):
+                raise ValueError("Unity 비상제어가 아직 활성화돼 있습니다. R 초기화 후 다시 시작하세요.")
+            self.can_control_locked = False
+            self.latest_can_state = None
+            self.can_decision = None
+            self.command.can_active = True
+            self.command.can_scenario = name
+            self.command.can_time_s = 0.0
+            self.command.can_anomaly = False
+            self.command.can_risk_score = 0
+            self.command.control_mode = "remote"
+            self.command.remote_enabled = True
+            self.command.throttle = 0.0
+            self.command.brake = 0.0
+            self.command.steering = 0.0
+            self.command.hazard = False
+            self.command.ecall = False
+
+    def apply_can_sample(
+        self, signals: CanSignals, decision: CanDecision,
+        steering: float, throttle: float, brake: float,
+    ) -> bool:
+        with self.lock:
+            self.latest_can_state = signals
+            self.can_decision = decision
+            self.command.can_time_s = signals.time_s
+            self.command.can_anomaly = decision.can_anomaly
+            self.command.can_risk_score = decision.can_risk_score
+            self.command.can_steering = steering
+            self.command.can_throttle = throttle
+            self.command.can_brake = brake
+            self.command.can_target_speed_kph = signals.vehicle_speed_kph
+            if not self.command.can_active or self.can_control_locked:
+                return False
+            self.command.control_mode = "remote"
+            self.command.remote_enabled = True
+            self.command.steering = steering
+            self.command.throttle = throttle
+            self.command.brake = brake
+            self.command.hazard = signals.hazard
+            self.command.ecall = signals.ecall
+            return True
+
+    def finish_can_playback(self, release_control: bool) -> None:
+        with self.lock:
+            self.command.can_active = False
+            if release_control or self.can_control_locked:
+                self.command.throttle = 0.0
+                self.command.brake = 0.0
+                self.command.steering = 0.0
+                if not self.can_control_locked:
+                    self.command.control_mode = "cruise"
+                    self.command.remote_enabled = False
+                    self.command.hazard = False
+                    self.command.ecall = False
 
 
 def publish_prediction(shared: SharedData, predicted_label: str) -> None:
@@ -266,7 +369,10 @@ def print_status(shared: SharedData) -> None:
         f"ecall={command.ecall} "
         f"remote={command.remote_enabled} "
         f"control_mode={command.control_mode} "
-        f"driver_state={command.driver_state}"
+        f"driver_state={command.driver_state} "
+        f"can_active={command.can_active} can_scenario={command.can_scenario} "
+        f"can_time_s={command.can_time_s:.1f} can_anomaly={command.can_anomaly} "
+        f"can_risk_score={command.can_risk_score} can_locked={shared.can_control_locked}"
     )
 
     if state is None:
@@ -327,6 +433,12 @@ def print_help() -> None:
   scenario danger                 Normal 10초 후 Danger 유지
   scenario caution                Normal 5초, Caution 8초, Normal
   scenario stop                   진행 중인 상태 시나리오 중단
+  can normal|danger               CAN CSV 재생 시작
+  can stop                        CAN 재생 중지, 정속주행 복귀
+  can restart                     로드된 CAN 시나리오 처음부터 재생
+  can status                      CAN 재생 시간과 판단 결과
+  can demo on|off                 CAN 단독 Danger 데모 모드
+  can end normal|hold             종료 후 정속주행 복귀/마지막 입력 유지
   demo                            기본 가속·조향·정차 시나리오
   status                          최근 차량 상태와 명령 확인
   help                            명령어 표시
@@ -335,7 +447,11 @@ def print_help() -> None:
     )
 
 
-def console_loop(shared: SharedData, scenarios: ScenarioRunner) -> None:
+def console_loop(
+    shared: SharedData, scenarios: ScenarioRunner,
+    can_player: CanScenarioPlayer, can_adapter: CanAdapter,
+    can_paths: dict[str, Path],
+) -> None:
     print_help()
     while shared.running:
         try:
@@ -420,7 +536,35 @@ def console_loop(shared: SharedData, scenarios: ScenarioRunner) -> None:
                         else "[SCENARIO] 실행 중인 시나리오가 없습니다."
                     )
                 else:
+                    can_player.stop()
+                    shared.finish_can_playback(release_control=True)
                     scenarios.start(parts[1])
+            elif command == "can" and len(parts) == 2 and parts[1] in can_paths:
+                scenarios.stop(wait=True)
+                can_player.start(can_paths[parts[1]], parts[1])
+            elif command == "can" and len(parts) == 2 and parts[1] == "stop":
+                can_player.stop()
+                shared.finish_can_playback(release_control=True)
+                print("[CAN] replay stopped; cruise restored unless Danger is latched")
+            elif command == "can" and len(parts) == 2 and parts[1] == "restart":
+                scenarios.stop(wait=True)
+                can_player.restart()
+            elif command == "can" and len(parts) == 2 and parts[1] == "status":
+                name, elapsed, running = can_player.status()
+                _, unity_state = shared.snapshot()
+                decision = shared.can_decision
+                print(f"[CAN] scenario={name} elapsed={elapsed:.1f}s running={running} "
+                      f"demo_mode={can_adapter.config.demo_mode} "
+                      f"risk={None if decision is None else decision.can_risk_score} "
+                      f"conditions={None if decision is None else decision.active_conditions} "
+                      f"anomaly={None if decision is None else decision.can_anomaly} "
+                      f"Unity emergency={None if unity_state is None else unity_state.get('emergency_phase')}")
+            elif command == "can" and len(parts) == 3 and parts[1] == "demo" and parts[2] in {"on", "off"}:
+                can_adapter.config.demo_mode = parts[2] == "on"
+                print(f"[CAN] demo_mode={can_adapter.config.demo_mode}")
+            elif command == "can" and len(parts) == 3 and parts[1] == "end" and parts[2] in {"normal", "hold"}:
+                can_adapter.config.end_behavior = parts[2]
+                print(f"[CAN] end_behavior={parts[2]}")
             elif command == "demo":
                 run_demo(shared)
             elif command == "status":
@@ -429,10 +573,11 @@ def console_loop(shared: SharedData, scenarios: ScenarioRunner) -> None:
                 print_help()
             elif command == "quit":
                 scenarios.stop(wait=True)
+                can_player.stop()
                 shared.running = False
             else:
                 print("알 수 없는 명령입니다. help를 입력해 확인하세요.")
-        except ValueError as exception:
+        except (ValueError, OSError, RuntimeError) as exception:
             print(f"입력 오류: {exception}")
 
 
@@ -441,13 +586,34 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=5001)
     parser.add_argument("--send-rate", type=float, default=20.0)
+    data_dir = Path(__file__).resolve().parents[1] / "data"
+    parser.add_argument("--can-normal-csv", type=Path, default=data_dir / "can_normal_60kmh_15s.csv")
+    parser.add_argument("--can-danger-csv", type=Path, default=data_dir / "can_danger_steer_accel_pulse_15s.csv")
+    parser.add_argument("--can-demo-mode", action="store_true")
+    parser.add_argument("--can-end-behavior", choices=("normal", "hold"), default="normal")
+    parser.add_argument("--can-max-steering-angle", type=float, default=30.0)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    if args.can_max_steering_angle <= 0:
+        raise ValueError("--can-max-steering-angle must be positive")
     shared = SharedData()
     scenarios = ScenarioRunner(shared)
+    can_adapter = CanAdapter(
+        shared, publish_prediction,
+        CanPlaybackConfig(
+            demo_mode=args.can_demo_mode,
+            end_behavior=args.can_end_behavior,
+            max_steering_angle_deg=args.can_max_steering_angle,
+        ),
+        CanAnomalyConfig(),
+    )
+    can_player = CanScenarioPlayer(
+        can_adapter.on_start, can_adapter.on_sample, can_adapter.on_finish,
+    )
+    can_paths = {"normal": args.can_normal_csv, "danger": args.can_danger_csv}
     server_thread = threading.Thread(
         target=server_loop,
         args=(args.host, args.port, shared, args.send_rate),
@@ -457,9 +623,10 @@ def main() -> None:
     server_thread.start()
 
     try:
-        console_loop(shared, scenarios)
+        console_loop(shared, scenarios, can_player, can_adapter, can_paths)
     finally:
         scenarios.stop(wait=True)
+        can_player.stop()
         shared.running = False
         server_thread.join(timeout=2.0)
         print("서버를 종료했습니다.")
