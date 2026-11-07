@@ -24,7 +24,7 @@ def parse_sample(line):
 
 # Sent as an in-memory command. No script or recordings written on the Pi.
 REMOTE = r'''
-import sys, time, json, struct, threading, queue, re
+import sys, time, json, struct, threading, queue, re, glob
 import cv2, serial
 cfg = json.loads(sys.argv[1])
 stop = threading.Event()
@@ -46,7 +46,14 @@ def emit(info, payload=b''):
 
 def bio():
     try:
-        with serial.Serial(cfg['port'], 115200, timeout=1, exclusive=True) as ser:
+        port = cfg['port']
+        if port == 'auto':
+            # The Nano clone appears as ttyUSB, other boards as ttyACM.
+            found = sorted(glob.glob('/dev/ttyUSB*')) + sorted(glob.glob('/dev/ttyACM*'))
+            if not found:
+                raise RuntimeError('No Arduino serial port found (/dev/ttyUSB*, /dev/ttyACM*). Check the USB cable.')
+            port = found[0]
+        with serial.Serial(port, 115200, timeout=1, exclusive=True) as ser:
             # Opening Nano serial often resets it. Discard startup bytes.
             time.sleep(2)
             ser.reset_input_buffer()
@@ -153,77 +160,33 @@ def read_packet(stream):
 
 
 
-def estimate_ppg_bpm(rows):
-    """Experimental peak-interval estimate, not a validated medical detector.
-
-    Pi read timestamps can be distorted by USB buffering. Never rescale ADC
-    amplitude into BPM. Reject obvious gaps/clipping/flat or irregular signals.
-    """
-    import numpy as np
-    from scipy.signal import butter, sosfiltfilt, find_peaks
-    a = np.asarray(rows, dtype=float)
-    if len(a) < 40:
-        return None, 'Collecting (need 8 seconds)'
-    a = a[a[:, 0] >= a[-1, 0] - 12]
-    t, y = a[:, 0], a[:, 2]
-    if t[-1] - t[0] < 8:
-        return None, 'Collecting (need 8 seconds)'
-    dt = np.diff(t)
-    if np.any(dt <= 0):
-        return None, 'Invalid timestamps'
-    fs = (len(t) - 1) / (t[-1] - t[0])
-    if fs < 20 or np.max(dt) > 0.25:
-        return None, 'Low sample rate / timing gap'
-    if np.mean((y <= 2) | (y >= 1021)) > 0.02 or np.ptp(y) < 6:
-        return None, 'Flat / clipped signal'
-    # Software timestamps only: interpolate to a uniform grid before filtering.
-    grid = np.arange(t[0], t[-1], 1 / fs)
-    raw = np.interp(grid, t, y)
-    signal = sosfiltfilt(butter(2, [0.5, 4.0], btype='bandpass', fs=fs, output='sos'), raw)
-    span = np.percentile(signal, 95) - np.percentile(signal, 5)
-    if span < 3:
-        return None, 'Weak signal'
-    peaks, _ = find_peaks(signal, distance=max(1, int(fs * 0.30)), prominence=max(2, span * 0.35))
-    # Exclude filter boundary peaks; inspect the last four intervals.
-    peaks = peaks[(grid[peaks] > grid[0] + .5) & (grid[peaks] < grid[-1] - .3)]
-    if len(peaks) < 5:
-        return None, 'Not enough pulse peaks'
-    intervals = np.diff(grid[peaks])[-4:]
-    median = np.median(intervals)
-    if grid[-1] - grid[peaks[-1]] > 2.2:
-        return None, 'No recent pulse peak'
-    if np.any((intervals < 60/200) | (intervals > 60/35)):
-        return None, 'Intervals outside estimator range'
-    if np.max(np.abs(intervals - median)) > median * .25:
-        return None, 'Unstable signal / irregular intervals'
-    return float(60 / median), 'PPG estimate (not clinically validated)'
-
-
-def autoscale_wave(ax, values):
-    """Show all visible raw samples with padding, retaining ADC units."""
-    low, high = float(min(values)), float(max(values))
-    padding = max(10, (high - low) * .12)
-    ax.set_ylim(max(-1, low - padding), min(1024, high + padding))
-
-
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--host', default='172.20.10.7')
     p.add_argument('--user', default='ecall')
-    p.add_argument('--port', default='/dev/ttyUSB0')
+    p.add_argument('--port', default='auto', help='Pi serial port. auto tries /dev/ttyUSB* then /dev/ttyACM*')
     p.add_argument('--camera', default='/dev/video0')
     p.add_argument('--width', type=int, default=1280)
     p.add_argument('--height', type=int, default=720)
     p.add_argument('--fps', type=int, default=30)
     p.add_argument('--output', type=Path, default=Path(__file__).resolve().parent / 'recordings')
+    models = Path(__file__).resolve().parent / 'models'
+    p.add_argument('--bio-model', type=Path, default=models / 'hr_classifier_ft.pt')
+    p.add_argument('--ppg-encoder', type=Path, default=models / 'papagei_s.pt')
+    p.add_argument('--ppg-head', type=Path, default=models / 'ppg_head_ft.pt')
     args = p.parse_args()
     if min(args.width, args.height, args.fps) <= 0:
         p.error('width, height and fps must be positive')
+    for path in (args.bio_model, args.ppg_encoder, args.ppg_head):
+        if not path.is_file():
+            p.error(f'Model file not found: {path}')
     import cv2
     import numpy as np
     import paramiko
     import matplotlib.pyplot as plt
     from matplotlib.animation import FuncAnimation
+    from biosignal.dashboard import BioDashboard
+    from biosignal.live import LiveAssessor
 
     folder = args.output / datetime.now().strftime('SESSION_%Y%m%d_%H%M%S_%f')
     folder.mkdir(parents=True, exist_ok=False)
@@ -232,11 +195,13 @@ def main():
                 timing='Pi read-completion timestamps; USB/camera buffering delay is uncalibrated. No ADC or exposure timestamps.',
                 video_timing='AVI constant FPS. Use frames.csv times for alignment, not frame_index / FPS.',
                 arduino='ECG:<0..1023> TAB PPG:<0..1023>; no sample counter, so serial loss cannot be proven absent.',
-                heart_rate='Display-only PPG peak-interval estimate; raw CSV unchanged. Estimator range 35-200 BPM; not diagnostic.',
+                heart_rate='biosignal package: ECG/PPG peak-interval BPM, ECG CNN and PaPaGei-S PPG grades; results in bio_status.jsonl; raw CSV unchanged. Not diagnostic.',
                 status='starting')
     def save_meta():
         (folder / 'session.json').write_text(json.dumps(meta, indent=2), encoding='utf-8')
     save_meta()
+    assessor = LiveAssessor(model_path=str(args.bio_model), log_path=str(folder / 'bio_status.jsonl'),
+                            ppg_encoder_path=str(args.ppg_encoder), ppg_head_path=str(args.ppg_head))
     client = paramiko.SSHClient()
     client.load_system_host_keys()
     known = Path.home() / '.ssh' / 'known_hosts'
@@ -246,8 +211,7 @@ def main():
     stop = threading.Event()
     done = threading.Event()
     display_lock = threading.Lock()
-    bio_display = deque(maxlen=30000)
-    latest_frame = [None]
+    bio_display = deque(maxlen=3000)
     status = ['Connecting']
     counts = {'bio': 0, 'frame': 0}
     last_seen = {'bio': None, 'frame': None}
@@ -292,6 +256,7 @@ def main():
                             bw.writerow(row + [info['ecg'], info['ppg']])
                             with display_lock:
                                 bio_display.append((elapsed, info['ecg'], info['ppg']))
+                            assessor.push(elapsed, info['ecg'], info['ppg'])
                         else:
                             frame = cv2.imdecode(np.frombuffer(payload, dtype=np.uint8), cv2.IMREAD_COLOR)
                             if frame is None:
@@ -306,8 +271,6 @@ def main():
                                 raise RuntimeError('Camera dimensions changed')
                             video.write(frame)
                             fw.writerow(row)
-                            with display_lock:
-                                latest_frame[0] = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                         counts[kind] += 1
                         last_seen[kind] = time.monotonic()
                         status[0] = 'Recording on laptop'
@@ -355,63 +318,18 @@ def main():
         threading.Thread(target=drain_errors, daemon=True).start()
         worker = threading.Thread(target=receive, daemon=True)
         worker.start()
+        assessor.start()
         print('Saving on LAPTOP:', folder)
         print('Close the dashboard to stop. Allow the final saving message before closing VS Code.')
-        fig = plt.figure(figsize=(14, 9))
-        grid = fig.add_gridspec(3, 2)
-        ax_cam = fig.add_subplot(grid[:, 0])
-        ax_ecg = fig.add_subplot(grid[0, 1])
-        ax_ppg = fig.add_subplot(grid[1, 1])
-        ax_hr = fig.add_subplot(grid[2, 1])
-        hr_line, = ax_hr.plot([], [], color='#d25c25', linewidth=1.5)
-        ax_hr.set(title='PPG heart rate: -- BPM', xlabel='Pi read time (s)', ylabel='BPM', ylim=(50, 150), xlim=(0, 60))
-        ax_hr.grid(alpha=.25)
-        hr_history = deque(maxlen=600)
-        last_hr_update = [-float('inf')]
-        last_scale = [-float('inf')]
-        image = ax_cam.imshow(np.zeros((args.height, args.width, 3), dtype=np.uint8))
-        ax_cam.set_title('Camera'); ax_cam.axis('off')
-        ecg_line, = ax_ecg.plot([], [], color='#168b65', linewidth=1)
-        ppg_line, = ax_ppg.plot([], [], color='#9b4ed0', linewidth=1)
-        for ax, title in [(ax_ecg, 'ECG raw ADC'), (ax_ppg, 'PPG raw ADC')]:
-            ax.set(title=title, xlabel='Pi read time (s)', ylabel='ADC', ylim=(0, 1023), xlim=(0, 5))
-            ax.grid(alpha=0.25)
+        # The camera is still recorded to video.avi; this screen only shows biosignals.
+        dashboard = BioDashboard()
         def update(_):
             with display_lock:
-                rows = list(bio_display)
-                frame = latest_frame[0]
-            if rows:
-                all_data = np.asarray(rows)
-                data = all_data[all_data[:, 0] >= all_data[-1, 0] - 5]
-                now = time.monotonic()
-                stale = last_seen['bio'] is None or now - last_seen['bio'] > 2
-                if now - last_hr_update[0] >= 1:
-                    bpm, reason = (None, 'No fresh data') if stale else estimate_ppg_bpm(all_data)
-                    last_hr_update[0] = now
-                    hr_history.append((data[-1, 0], float('nan') if bpm is None else bpm))
-                    ax_hr.set_title(('PPG heart rate: -- BPM' if bpm is None else f'PPG heart rate: {bpm:.0f} BPM') + '\n' + reason, fontsize=10)
-                    history = np.asarray(hr_history)
-                    history = history[history[:, 0] >= data[-1, 0] - 60]
-                    hr_line.set_data(history[:, 0], history[:, 1])
-                    valid = history[np.isfinite(history[:, 1]), 1]
-                    ax_hr.set_ylim(min(50, float(valid.min())-10) if len(valid) else 50,
-                                   max(150, float(valid.max())+10) if len(valid) else 150)
-                    ax_hr.set_xlim(max(0, data[-1, 0]-60), max(60, data[-1, 0]))
-                if now - last_scale[0] >= 1:
-                    autoscale_wave(ax_ecg, data[:, 1])
-                    autoscale_wave(ax_ppg, data[:, 2])
-                    last_scale[0] = now
-                ecg_line.set_data(data[:, 0], data[:, 1])
-                ppg_line.set_data(data[:, 0], data[:, 2])
-                for ax in (ax_ecg, ax_ppg):
-                    ax.set_xlim(max(0, data[-1, 0]-5), max(5, data[-1, 0]))
-            if frame is not None:
-                image.set_data(frame)
+                rows = np.asarray(bio_display) if bio_display else None
             ages = ' | '.join(f'{k}: {counts[k]} (age {time.monotonic()-v:.1f}s)' if v is not None else f'{k}: waiting' for k, v in last_seen.items())
-            fig.suptitle(status[0] + '\n' + ages, fontsize=10)
-            return image, ecg_line, ppg_line, hr_line
-        animation = FuncAnimation(fig, update, interval=100, cache_frame_data=False)
-        fig.tight_layout(rect=(0, 0, 1, .92), h_pad=2.5)
+            dashboard.update(rows, assessor.latest(), assessor.error, footer=status[0] + '\n' + ages)
+            return dashboard.artists()
+        animation = FuncAnimation(dashboard.fig, update, interval=100, cache_frame_data=False)
         plt.show()
     finally:
         if stdin is not None:
@@ -425,6 +343,7 @@ def main():
             if worker.is_alive():
                 stdout.channel.close()
                 worker.join(timeout=22)
+        assessor.stop()
         client.close()
         if worker is None:
             meta['status'] = 'startup_failed'

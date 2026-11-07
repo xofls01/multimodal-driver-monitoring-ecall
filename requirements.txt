@@ -1,0 +1,7 @@
+numpy
+scipy
+torch
+matplotlib
+opencv-python
+paramiko
+# 모델을 다시 학습할 때만 추가로 설치: py -m pip install wfdb

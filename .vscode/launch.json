@@ -1,0 +1,23 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "생체신호 실시간 실행",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/biosignal_camera_live_bpm.py",
+      "args": ["--host", "ecall.local"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "장비 없이 화면 확인 (심정지 합성 신호)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/tools/demo_dashboard.py",
+      "args": ["cardiac_arrest"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}
