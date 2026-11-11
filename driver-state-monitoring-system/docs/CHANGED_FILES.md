@@ -107,3 +107,13 @@
 - README.md, results.html, package_manifest.json
 
 새 결과: outputs/ui_plain_english/
+
+## 휴대전화 오검출 수정
+
+- src/driver_state_tools/object_tracking.py
+- src/driver_state_tools/vision_pipeline.py
+- config/vision_baseline.json, config/prototype/vision_baseline.json, config/legacy/vision_baseline.json
+- tests/test_object_tracking.py, tests/test_phone_context.py
+- docs/PHONE_FALSE_POSITIVES.md
+
+새 결과: outputs/phone_verified/

@@ -32,6 +32,41 @@ class TemporalBoxTrackerTest(unittest.TestCase):
         second = tracker.update([(11, 20, 31, 50, 0.8)], 0.125)
         self.assertEqual(second.mode, "detected")
 
+    def test_existing_phone_does_not_auto_confirm_new_false_candidate(self):
+        tracker=TemporalBoxTracker(min_confirmations=2)
+        a=(10,20,70,50,.8);b=(400,400,490,450,.2)
+        tracker.update([a],0)
+        self.assertEqual(len(tracker.update([a],.2).boxes),1)
+        self.assertEqual(len(tracker.update([a,b],.4).boxes),1)
+        self.assertEqual(len(tracker.update([a,b],.6).boxes),2)
+
+    def test_matching_phone_cannot_confirm_other_pending_box(self):
+        tracker=TemporalBoxTracker(min_confirmations=2)
+        a=(10,20,70,50,.8);b=(400,400,490,450,.2)
+        tracker.update([a,b],0)
+        output=tracker.update([a],.2)
+        self.assertEqual(output.boxes,[a])
+
+    def test_unrelated_detections_do_not_extend_a_stale_track(self):
+        tracker=TemporalBoxTracker(hold_seconds=.8,min_confirmations=2)
+        a=(10,20,70,50,.8);b=(400,400,490,450,.2)
+        tracker.update([a],0);tracker.update([a],.2)
+        tracker.update([b],.8)
+        output=tracker.update([b],1.1)
+        self.assertEqual(output.boxes,[b])
+
+    def test_expired_pending_hit_cannot_confirm_a_new_observation(self):
+        tracker=TemporalBoxTracker(hold_seconds=.8,min_confirmations=2)
+        a=(10,20,70,50,.8)
+        tracker.update([a],0)
+        self.assertEqual(tracker.peek(2).boxes,[])
+        self.assertEqual(tracker.update([a],2.1).boxes,[])
+
+    def test_two_predictions_in_one_frame_do_not_supply_two_confirmations(self):
+        tracker=TemporalBoxTracker(min_confirmations=2)
+        a=(10,20,70,50,.8)
+        self.assertEqual(tracker.update([a,a],0).boxes,[])
+
 
 if __name__ == "__main__":
     unittest.main()

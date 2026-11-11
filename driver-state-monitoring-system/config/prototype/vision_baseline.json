@@ -23,7 +23,7 @@
   "phone_chest_confidence": 0.45,
   "phone_min_elongation": 1.55,
   "phone_max_area_ratio": 0.018,
-  "phone_max_elongation": 3.3,
+  "phone_max_elongation": 4.5,
   "phone_class_id": 67,
   "calibration_seconds": 0.6,
   "calibration_max_seconds": 3.0,
@@ -127,5 +127,11 @@
   "gaze_model_metadata": null,
   "gaze_input_modality": "RGB",
   "ui_language": "en",
-  "output_border_pixels": 8
+  "output_border_pixels": 8,
+  "phone_verification_enabled": true,
+  "phone_verification_padding": 0.6,
+  "phone_verification_confidence": 0.25,
+  "phone_verification_joint_confidence": 0.35,
+  "phone_verification_iou": 0.3,
+  "phone_verification_image_size": 640
 }

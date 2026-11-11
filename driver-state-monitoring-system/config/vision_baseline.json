@@ -143,5 +143,11 @@
     "long_blink_seconds",
     "nod_drop_ratio",
     "pose_head_turn_ratio"
-  ]
+  ],
+  "phone_verification_enabled": true,
+  "phone_verification_padding": 0.6,
+  "phone_verification_confidence": 0.25,
+  "phone_verification_joint_confidence": 0.35,
+  "phone_verification_iou": 0.3,
+  "phone_verification_image_size": 640
 }

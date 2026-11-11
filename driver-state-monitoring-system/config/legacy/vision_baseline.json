@@ -119,5 +119,6 @@
     "donut": "food",
     "cake": "food",
     "book": "other"
-  }
+  },
+  "phone_verification_enabled": false
 }

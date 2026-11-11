@@ -343,9 +343,50 @@ class VisionModels:
             )
             if hand_hit or (not hand_sets and confidence >= 0.40 and wrist_hit):
                 contextual.append(candidate)
+        contextual = self._verify_phone_candidates(frame, contextual)
         tracked = self.phone_tracker.update(contextual, timestamp)
         self._last_phone_mode = tracked.mode
         return tracked.boxes, tracked.mode
+
+    def _verify_phone_candidates(self, frame, candidates):
+        """Recheck actual image content around each contextual phone candidate.
+
+        Nearby fingers alone are not object evidence. Scores are detector
+        consistency measures, not calibrated probabilities or medical criteria.
+        No scenario ID or hard-coded image region is used.
+        """
+        if not self.config.get("phone_verification_enabled", True) or not candidates:
+            return candidates
+        height,width=frame.shape[:2]
+        views=[];offsets=[];valid=[]
+        padding=float(self.config.get("phone_verification_padding",.6))
+        for candidate in candidates:
+            x1,y1,x2,y2,_=candidate
+            px=max(12,round((x2-x1)*padding));py=max(12,round((y2-y1)*padding))
+            left,top=max(0,x1-px),max(0,y1-py)
+            right,bottom=min(width,x2+px),min(height,y2+py)
+            if right<=left or bottom<=top:
+                continue
+            views.append(frame[top:bottom,left:right]);offsets.append((left,top));valid.append(candidate)
+        confidence=float(self.config.get("phone_verification_confidence",.25))
+        predictions=self._phone_predictions(views,int(self.config.get("phone_verification_image_size",640)),confidence)
+        overlap_min=float(self.config.get("phone_verification_iou",.3))
+        joint_min=float(self.config.get("phone_verification_joint_confidence",.35))
+        kept=[];evidence=[]
+        for candidate,(ox,oy),detections in zip(valid,offsets,predictions):
+            best=0.
+            for x1,y1,x2,y2,score in detections:
+                mapped=(x1+ox,y1+oy,x2+ox,y2+oy,score)
+                if box_iou(candidate,mapped)>=overlap_min:
+                    best=max(best,float(score))
+            joint=float(np.sqrt(max(0.,candidate[4])*max(0.,best)))
+            accepted=best>=confidence and joint>=joint_min
+            evidence.append(dict(box=list(candidate),verification_score=best,
+                                 consistency_score=joint,accepted=accepted))
+            if accepted:
+                kept.append(candidate)
+        self.phone_verification_evidence=evidence
+        return kept
 
     def _extract_hands(self, frame: np.ndarray) -> dict[str, Any]:
         height, width = frame.shape[:2]

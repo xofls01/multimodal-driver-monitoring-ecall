@@ -16,3 +16,5 @@ sh run.sh --input /path/to/video.mp4 --neutral-window 0.3 1.3 --output outputs/m
 Unity 수신 설정과 C# 코드는 [integration/UNITY_INTEGRATION.md](integration/UNITY_INTEGRATION.md)에 있다. 실제 Unity Editor의 차량 물리 동작은 이번 Python 검증 범위에 포함하지 않았다.
 
 원본 영상, 생성 영상과 로그, 가상환경은 저장소에 포함하지 않는다. 사전학습 가중치 두 개와 버전을 고정한 의존성 파일을 포함한다. 실행 결과는 outputs에 생성된다.
+
+휴대전화 후보별 확인과 확대 재검증을 추가했다. [수정과 검증](docs/PHONE_FALSE_POSITIVES.md)에 기록했다.
