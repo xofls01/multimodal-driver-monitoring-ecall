@@ -352,7 +352,15 @@ class BioSignalMonitor:
             ppg.reliable = False
             ppg.hr = None
             return None, None
-        return (label, conf) if ppg.reliable else (None, None)
+        if not ppg.reliable:
+            return None, None
+        # PPG 모델의 등급은 심박수 구간으로만 학습했다. 깨끗하게 잰 bpm이 정상 범위인데
+        # 위험으로 보면 모델 오판이므로 버리고 측정값 규칙으로 판정한다.
+        # 실측(2026-11-11): 피크 간격 82 bpm, SQI 0.6~0.99 구간에서 모델이 위험 0.98~1.0을 냈다
+        if (label == DANGER and ppg.hr is not None
+                and self.cfg.hr_caution_low < ppg.hr <= self.cfg.hr_caution_high):
+            return None, None
+        return label, conf
 
     def _danger_tag(self, ecg, ppg, from_model: bool) -> str:
         """직접 잰 bpm이 위험 범위면 그 이유를 우선한다. 사용자가 이해하기 쉽기 때문이다."""
