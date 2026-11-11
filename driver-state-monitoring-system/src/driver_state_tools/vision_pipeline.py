@@ -7,6 +7,8 @@ import cv2
 import numpy as np
 
 from .object_tracking import TemporalBoxTracker, box_iou
+from .handheld_objects import HandheldObjectDetector
+from .gaze_zones import GazeZoneEstimator
 from .dashboard import draw_overlay
 from .vision_features import (
     LEFT_EYE,
@@ -41,6 +43,8 @@ class VisionModels:
         self.mp = mp
         self.pose_model = YOLO(str(self._resolve_model(config["pose_model"], project_root)))
         self.detect_model = YOLO(str(self._resolve_model(config["detect_model"], project_root)))
+        self.handheld_detector = HandheldObjectDetector(self.detect_model, config)
+        self.gaze_estimator = GazeZoneEstimator(config, project_root)
         self.phone_tracker = TemporalBoxTracker(
             float(config.get("phone_hold_seconds", 0.8)),
             min_confirmations=int(config.get("phone_confirm_frames", 2)),
@@ -64,6 +68,7 @@ class VisionModels:
         self.face_landmarker.reset()
         self.hand_landmarker.reset()
         self.phone_tracker.reset()
+        self.handheld_detector.reset()
         self._next_phone_at = 0.0
         self._last_phone_mode = None
         self._eye_measurement_disabled = eyes_occluded or bool(self.config.get("eye_measurement_disabled", False))
@@ -283,6 +288,8 @@ class VisionModels:
         minimum_elongation = float(self.config.get("phone_min_elongation", 1.55))
         maximum_area_ratio = float(self.config.get("phone_max_area_ratio", 0.04))
         hand_sets = hands.get("landmarks", [])
+        chest_hands = self._hand_chest_context(hand_sets, pose.get("keypoints", {}))
+        chest_minimum = max(minimum, float(self.config.get("phone_chest_confidence", 0.45)))
         wrists = [pose.get("keypoints", {}).get(index) for index in (9, 10)]
         for candidate in self._nms(combined):
             x1, y1, x2, y2, confidence = candidate
@@ -298,10 +305,17 @@ class VisionModels:
             pad_x = max(8, int((x2 - x1) * 0.22))
             pad_y = max(8, int((y2 - y1) * 0.22))
             left, top, right, bottom = x1 - pad_x, y1 - pad_y, x2 + pad_x, y2 + pad_y
-            overlapped_hands = sum(
-                sum(left <= point[0] <= right and top <= point[1] <= bottom for point in points) >= 2
-                for points in hand_sets
-            )
+            overlapped_indices = [
+                index for index, points in enumerate(hand_sets)
+                if sum(left <= point[0] <= right and top <= point[1] <= bottom for point in points) >= 2
+            ]
+            # Bare fingers over dark clothing can resemble a phone in enlarged
+            # hand crops. Hand overlap is not independent evidence in this pose.
+            # Require stronger object evidence only for the overlapping chest
+            # hand; a real, confidently detected phone may still coexist with it.
+            if confidence < chest_minimum and any(chest_hands[index] for index in overlapped_indices):
+                continue
+            overlapped_hands = len(overlapped_indices)
             # A phone in the current driving protocol is held by one hand. Very
             # large false boxes around the steering wheel overlap both hands.
             hand_hit = overlapped_hands == 1
@@ -480,8 +494,13 @@ class VisionModels:
         pose = self._extract_pose(frame)
         hands = self._extract_hands(frame)
         phones, phone_track_mode = self._extract_objects(frame, pose, hands, timestamp)
+        handheld_objects = self.handheld_detector.update(frame, pose, hands, face, timestamp)
         hand_on_wheel, hand_phone_overlap = self._hand_phone_context(
             hands.get("landmarks", []), hands.get("on_wheel", []), phones
+        )
+        hand_on_wheel, _ = self._hand_phone_context(
+            hands.get("landmarks", []), hand_on_wheel,
+            [tuple(item["box"]) + (item["confidence"],) for item in handheld_objects],
         )
         hand_on_chest = self._hand_chest_context(hands.get("landmarks", []), pose.get("keypoints", {}))
         hand_on_wheel = [
@@ -531,6 +550,7 @@ class VisionModels:
             person_box=pose.get("box"),
             phone_boxes=phones,
             phone_track_mode=phone_track_mode,
+            handheld_objects=handheld_objects,
             pose_keypoints=keypoints,
             face_landmarks=face.get("landmarks", {}),
             hand_landmarks=hands.get("landmarks", []),
@@ -544,6 +564,9 @@ class VisionModels:
             rppg_forehead_box=rppg.get("forehead_box"),
             rppg_cheek_boxes=rppg.get("cheek_boxes", []),
             quality_reasons=reasons,
+            image_height=height,
+            image_width=width,
+            gaze_observation=self.gaze_estimator.predict(frame, face),
         )
 
     def extract_rppg_only(self, frame: np.ndarray, timestamp: float) -> RawFeatures:

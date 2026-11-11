@@ -1,19 +1,21 @@
 {
-  "eyes_closed_caution_seconds": 2.0,
-  "attention_away_caution_seconds": 2.0,
-  "attention_repeat_count": 3,
-  "attention_repeat_window_seconds": 10.0,
-  "attention_episode_min_seconds": 0.35,
-  "attention_cumulative_caution_seconds": 4.0,
-  "recovery_seconds": 0.8,
-  "head_abnormal_caution_seconds": 6.0,
-  "yawn_caution_seconds": 2.0,
-  "perclos_caution_seconds": 2.0,
-  "torso_lean_caution_seconds": 4.0,
-  "collapse_caution_seconds": 1.5,
-  "distress_gesture_caution_seconds": 1.5,
-  "danger_after_warning_seconds": 5.0,
-  "signal_gap_tolerance_seconds": 0.35,
-  "unknown_if_face_unreadable": true
+  "mode": "literature",
+  "eyes_closed_caution_seconds": 1.5,
+  "eyes_prolonged_seconds": 3.0,
+  "eyes_closed_danger_seconds": 6.0,
+  "attention_away_caution_seconds": 3.0,
+  "attention_window_seconds": 30.0,
+  "attention_cumulative_seconds": 10.0,
+  "attention_after_warning_seconds": 3.0,
+  "mouth_open_caution_seconds": 3.0,
+  "eye_ratio_window_seconds": 60.0,
+  "eye_ratio_high": 0.2,
+  "eye_ratio_result_lifetime_seconds": 60.0,
+  "recovery_seconds": 0.3,
+  "max_observation_gap_seconds": 0.25,
+  "required_observations": [
+    "eyes",
+    "gaze"
+  ],
+  "external_response_enabled": false
 }
-

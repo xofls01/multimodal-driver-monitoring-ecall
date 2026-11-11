@@ -10,7 +10,7 @@ from driver_state_tools.vision_features import FeatureTracker, RawFeatures
 
 class QualityTest(unittest.TestCase):
     def tracker(self):
-        cfg = json.loads((ROOT/'config/vision_baseline.json').read_text())
+        cfg = json.loads((ROOT/'config/legacy/vision_baseline.json').read_text())
         cfg.update(calibration_seconds=.5, calibration_min_samples=3, ema_alpha=1,
                    head_median_window_samples=1)
         return FeatureTracker(cfg)

@@ -1,0 +1,30 @@
+{
+  "mode": "prototype",
+  "eyes_closed_caution_seconds": 1.5,
+  "attention_away_caution_seconds": 3.0,
+  "collapse_posture_caution_seconds": 0.8,
+  "torso_lean_caution_seconds": 2.0,
+  "mouth_open_caution_seconds": 3.0,
+  "hand_near_chest_caution_seconds": 1.0,
+  "nod_proxy_caution_seconds": 0.4,
+  "collapse_after_caution_seconds": 3.0,
+  "max_observation_gap_seconds": 0.25,
+  "recovery_seconds": 0.3,
+  "attention_window_seconds": 30.0,
+  "attention_cumulative_seconds": 10.0,
+  "attention_episode_min_seconds": 0.35,
+  "attention_repeat_count": 3,
+  "history_support_seconds": 0.5,
+  "head_dip_repeat_count": 2,
+  "long_closure_repeat_count": 3,
+  "eye_ratio_window_seconds": 60.0,
+  "eye_ratio_high": 0.2,
+  "rule_provenance": {
+    "eyes_closed_caution_seconds": "R2 timing reference; Face Mesh transfer not validated",
+    "attention_away_caution_seconds": "R6 timing reference; relative proxy is not R4 gaze model",
+    "attention_cumulative_seconds": "R6 timing reference; local proxy and current-away rearming are application design",
+    "collapse_posture_caution_seconds": "prototype simulator setting; not a literature cutoff",
+    "collapse_after_caution_seconds": "prototype simulator setting; not Euro NCAP or medical confirmation",
+    "repeated_conditions": "prototype settings inherited for feasibility; not validated paper thresholds"
+  }
+}

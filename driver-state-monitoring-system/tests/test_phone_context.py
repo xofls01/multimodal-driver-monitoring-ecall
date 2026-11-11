@@ -10,7 +10,7 @@ from driver_state_tools.object_tracking import TemporalBoxTracker
 
 
 class PhoneContextTest(unittest.TestCase):
-    def extract(self,box,hand):
+    def extract(self,box,hand,keypoints=None,other_hand=None):
         model=object.__new__(VisionModels)
         model.config=json.loads((ROOT/'config/vision_baseline.json').read_text())
         model.phone_tracker=TemporalBoxTracker(min_confirmations=1)
@@ -18,7 +18,34 @@ class PhoneContextTest(unittest.TestCase):
         model._last_phone_mode=None
         model._phone_predictions=lambda images,image_size,confidence: [[box] if image_size==960 else [] for _ in images]
         points=[(float(hand[0]+i%5*6),float(hand[1]+i//5*6),0) for i in range(21)]
-        return model._extract_objects(np.zeros((720,1280,3),np.uint8),{'keypoints':{}},{'landmarks':[points]},0)
+        hands=[points]
+        if other_hand is not None:
+            hands.append([(float(other_hand[0]+i%5*6),float(other_hand[1]+i//5*6),0) for i in range(21)])
+        return model._extract_objects(np.zeros((720,1280,3),np.uint8),{'keypoints':keypoints or {}},{'landmarks':hands},0)
+
+    @staticmethod
+    def torso():
+        return {5:(800,250,.9),6:(1100,250,.9),11:(800,650,.9),12:(1100,650,.9)}
+
+    def test_weak_phone_over_chest_hand_is_not_confirmed(self):
+        boxes,mode=self.extract((900,340,1000,380,.274),(920,355),self.torso())
+        self.assertEqual(boxes,[])
+        self.assertIsNone(mode)
+
+    def test_strong_real_phone_can_coexist_with_chest_hand(self):
+        boxes,mode=self.extract((900,340,1000,380,.8),(920,355),self.torso())
+        self.assertTrue(boxes)
+        self.assertEqual(mode,'detected')
+
+    def test_low_phone_score_remains_usable_away_from_chest(self):
+        boxes,mode=self.extract((1100,525,1200,565,.15),(1120,535),self.torso())
+        self.assertTrue(boxes)
+        self.assertEqual(mode,'detected')
+
+    def test_other_chest_hand_does_not_veto_phone_hand(self):
+        boxes,mode=self.extract((1100,525,1200,565,.15),(920,355),self.torso(),(1120,535))
+        self.assertTrue(boxes)
+        self.assertEqual(mode,'detected')
 
     def test_wheel_bar_not_phone_even_one_hand_survives(self):
         boxes,mode=self.extract((900,525,1180,600,.8),(1050,530))

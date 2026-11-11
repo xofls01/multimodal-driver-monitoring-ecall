@@ -161,6 +161,7 @@ class RawFeatures:
     person_box: tuple[int, int, int, int] | None = None
     phone_boxes: list[tuple[int, int, int, int, float]] = field(default_factory=list)
     phone_track_mode: str | None = None
+    handheld_objects: list[dict[str, Any]] = field(default_factory=list)
     pose_keypoints: dict[int, tuple[float, float, float]] = field(default_factory=dict)
     face_landmarks: dict[int, tuple[float, float]] = field(default_factory=dict)
     hand_landmarks: list[list[tuple[float, float, float]]] = field(default_factory=list)
@@ -174,6 +175,9 @@ class RawFeatures:
     rppg_forehead_box: tuple[int, int, int, int] | None = None
     rppg_cheek_boxes: list[tuple[int, int, int, int]] = field(default_factory=list)
     quality_reasons: list[str] = field(default_factory=list)
+    image_height: int = 0
+    image_width: int = 0
+    gaze_observation: dict[str, Any] = field(default_factory=dict)
 
     @property
     def ear(self) -> float | None:
@@ -286,10 +290,16 @@ class FeatureTracker:
         return self._smooth(name, median(self._head_history[name]))
 
     def _collect_calibration(self, raw: RawFeatures) -> None:
-        if self.profile.status != "calibrating" or raw.timestamp > float(self.config["calibration_max_seconds"]):
+        # Face/eyes can appear later than body pose. Keep collecting within the
+        # short startup window so missing baselines can be filled independently.
+        if self.profile.status not in ("calibrating", "ready") or raw.timestamp > float(self.config["calibration_max_seconds"]):
             return
+        if self.config.get("judgment_mode") == "prototype":
+            window = self.config.get("calibration_reference", {}).get("neutral_window")
+            if window is None or not window[0] <= raw.timestamp <= window[1]+1e-8:
+                return
         candidates = {
-            "ear": raw.ear if raw.eyes_readable else None,
+            "ear": self._measured_ear(raw) if raw.eyes_readable else None,
             "mar": raw.mar if raw.face_readable else None,
             "pitch": raw.head_pitch if raw.face_readable else None,
             "yaw": raw.head_yaw if raw.face_readable else None,
@@ -299,15 +309,24 @@ class FeatureTracker:
             "head_drop": raw.head_drop_ratio if raw.pose_readable else None,
             "pose_head_x": raw.pose_head_x,
         }
+        if self.config.get("judgment_mode") == "literature":
+            # An unreviewed startup image cannot establish that the eyes are open.
+            candidates["ear"] = None
         for name, value in candidates.items():
             if value is not None and math.isfinite(value):
                 self._samples[name].append(float(value))
 
     def _finalize_calibration_if_ready(self, timestamp: float) -> None:
         minimum = int(self.config["calibration_min_samples"])
+        if self.config.get("judgment_mode") == "prototype":
+            window = self.config.get("calibration_reference", {}).get("neutral_window")
+            if window is None or timestamp+1e-8 < window[1]:
+                return
         if timestamp < float(self.config["calibration_seconds"]):
             return
-        if self.profile.status != "calibrating":
+        if self.profile.status not in ("calibrating", "ready"):
+            return
+        if self.profile.status == "ready" and timestamp > float(self.config["calibration_max_seconds"]):
             return
         face_ready = all(len(self._samples[name]) >= minimum for name in ("pitch","yaw"))
         pose_ready = all(len(self._samples[name]) >= minimum for name in ("torso","head_drop"))
@@ -321,21 +340,40 @@ class FeatureTracker:
             radians = np.radians(values)
             return math.degrees(math.atan2(float(np.mean(np.sin(radians))), float(np.mean(np.cos(radians)))))
 
-        self.profile = CalibrationProfile(
+        candidate = CalibrationProfile(
             status="ready",
             sample_count=max(len(self._samples["pitch"]), len(self._samples["torso"])),
             # Upper-eye and lower-mouth quantiles resist blinks and speech/yawns
             # during the otherwise neutral calibration interval.
             neutral_ear=float(np.quantile(self._samples["ear"], 0.70)) if len(self._samples["ear"]) >= minimum else None,
-            neutral_mar=float(np.quantile(self._samples["mar"], 0.30)) if self._samples["mar"] else None,
+            neutral_mar=float(np.quantile(self._samples["mar"], 0.30)) if len(self._samples["mar"]) >= minimum else None,
             neutral_pitch=circular_mean(self._samples["pitch"]) if face_ready else None,
             neutral_yaw=circular_mean(self._samples["yaw"]) if face_ready else None,
-            neutral_gaze_x=median(self._samples["gaze_x"]) if self._samples["gaze_x"] else None,
-            neutral_gaze_y=median(self._samples["gaze_y"]) if self._samples["gaze_y"] else None,
-            neutral_torso=median(self._samples["torso"]) if self._samples["torso"] else None,
-            neutral_head_drop=median(self._samples["head_drop"]) if self._samples["head_drop"] else None,
-            neutral_pose_head_x=median(self._samples["pose_head_x"]) if self._samples["pose_head_x"] else None,
+            neutral_gaze_x=median(self._samples["gaze_x"]) if len(self._samples["gaze_x"]) >= minimum else None,
+            neutral_gaze_y=median(self._samples["gaze_y"]) if len(self._samples["gaze_y"]) >= minimum else None,
+            neutral_torso=median(self._samples["torso"]) if pose_ready else None,
+            neutral_head_drop=median(self._samples["head_drop"]) if pose_ready else None,
+            neutral_pose_head_x=median(self._samples["pose_head_x"]) if len(self._samples["pose_head_x"]) >= minimum else None,
         )
+        if self.config.get("judgment_mode") == "literature":
+            candidate.neutral_ear = self.config.get("calibration_reference", {}).get("eye_baseline_mean")
+        elif self.config.get("judgment_mode") == "prototype":
+            candidate.neutral_ear = float(np.mean(self._samples["ear"])) if len(self._samples["ear"]) >= minimum else None
+        if self.profile.status == "ready":
+            # Never move an established baseline towards the subsequent action.
+            for name, value in vars(candidate).items():
+                if name.startswith("neutral_") and getattr(self.profile, name) is None and value is not None:
+                    setattr(self.profile, name, value)
+            self.profile.sample_count = max(self.profile.sample_count, candidate.sample_count)
+        else:
+            self.profile = candidate
+
+    def _measured_ear(self, raw: RawFeatures) -> float | None:
+        if self.config.get("eye_combine_method") == "mean":
+            if raw.ear_left is None or raw.ear_right is None:
+                return None
+            return (raw.ear_left + raw.ear_right)/2.0
+        return raw.ear
 
     def _eye_closed(self, ear: float | None, timestamp: float) -> bool | None:
         if ear is None or self.profile.neutral_ear is None:
@@ -391,7 +429,7 @@ class FeatureTracker:
         self._collect_calibration(raw)
         self._finalize_calibration_if_ready(raw.timestamp)
         # EMA can erase short blinks: measure durations from the unsmoothed aperture.
-        ear = raw.ear if raw.eyes_readable else None
+        ear = self._measured_ear(raw) if raw.eyes_readable else None
         mar = self._smooth("mar", raw.mar)
         torso = self._smooth("torso", raw.torso_angle)
         head_drop = self._smooth("head_drop", raw.head_drop_ratio)

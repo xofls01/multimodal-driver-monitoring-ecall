@@ -1,0 +1,12 @@
+{
+  "source_archive": "Unity.zip",
+  "source_archive_sha256": "0452d323f9c5d19252c088a63df19757f13a9b81bc08840ca347cd870cebc23e",
+  "note": "Modified copies for unavailable-state display and a prediction watchdog. No emergency trajectory or actuator controller changes.",
+  "original_files_sha256": {
+    "Unity/Assets/Stage1BasicVehicle/Scripts/UnityTcpVehicleBridge.cs": "8a48ac3bb4ce689b1c609200f1f4132ec24bc52e5709f5265f83891403d5cc5a",
+    "Unity/Assets/Stage1BasicVehicle/Scripts/DriverStateWarningUI.cs": "61ebed8b3aed2177efa58731c2e48a875527dd83e0912f41b0bc13486bfdb959"
+  },
+  "revision_date": "2026-11-11",
+  "revision_note": "Separate literature-mode copy: warning display acknowledgement, packet metadata and explicit stop request latch; Unity Editor and physics not executed.",
+  "unity_editor_executed": false
+}

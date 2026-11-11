@@ -70,6 +70,9 @@ def main() -> int:
     ap.add_argument("--eyes-occluded", action="store_true", help="Disable unreadable eye measurements explicitly")
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--check", action="store_true", help="Verify packaged weights and dependencies only")
+    ap.add_argument("--mode", choices=("literature", "legacy"), default="literature")
+    ap.add_argument("--calibration-profile", type=Path)
+    ap.add_argument("--unity", action="store_true", help="Publish current analyzed decisions during the vision stage")
     args = ap.parse_args()
     try:
         hashes = verify_models(ROOT)
@@ -107,7 +110,10 @@ def main() -> int:
                           "--interval", str(args.annotation_interval), *staged]))
         stages.extend([
             ("run_vision_baseline.py", ["--input", str(source), "--output", str(output / "run"),
-                "--device", args.device, *staged, *(["--eyes-occluded"] if args.eyes_occluded else [])]),
+                "--device", args.device, *staged, *(["--eyes-occluded"] if args.eyes_occluded else []),
+                *(["--config",str(ROOT/"config/legacy/vision_baseline.json"),"--rules",str(ROOT/"config/legacy/decision_rules.json")] if args.mode=="legacy" else []),
+                *(["--calibration-profile",str(args.calibration_profile)] if args.calibration_profile else []),
+                *(["--unity"] if args.unity else [])]),
             ("audit_vision_run.py", ["--run", str(output / "run")]),
             ("encode_review_videos.py", ["--run", str(output / "run")]),
             ("build_vision_review.py", ["--output", str(output), "--scenario-only"]),

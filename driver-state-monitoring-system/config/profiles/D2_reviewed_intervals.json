@@ -1,0 +1,25 @@
+{
+  "reviewed": true,
+  "reviewer": "Codex visual review of selected original frames; acted behavior, not sleep ground truth",
+  "source_sha256": "763079e894b9c3a95c8e69d28acbb9417f1d651e3c45a37d1f66873d1a4e8c1d",
+  "records_sha256": "e160b607a86f98367701fcaf155c9e9f261cd8bef470ac06dab6884766744f2e",
+  "neutral_open_intervals": [
+    [
+      0.73,
+      1.2
+    ]
+  ],
+  "validation_open_intervals": [
+    [
+      2,
+      2.2
+    ]
+  ],
+  "validation_closed_intervals": [
+    [
+      4.2,
+      4.8
+    ]
+  ],
+  "review_note": "Initial 0-.8s had only two valid detected-face samples; use the separately reviewed .73-1.2s neutral-open interval without changing minimum sample requirements."
+}

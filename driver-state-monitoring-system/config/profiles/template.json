@@ -1,0 +1,31 @@
+{
+  "schema": "reviewed_video_calibration_v1",
+  "source_sha256": null,
+  "neutral_open_reviewed": false,
+  "neutral_sample_count": 0,
+  "eye_baseline_mean": null,
+  "provenance": null,
+  "eye_validation": {
+    "passed": false
+  },
+  "nod": {
+    "measurement": "eye_mid_y_over_image_height",
+    "reviewed": false,
+    "provenance": null,
+    "upper_boundary": null,
+    "lower_boundary": null,
+    "descent_min_speed": null,
+    "descent_max_speed": null,
+    "recovery_min_speed": null,
+    "recovery_max_speed": null
+  },
+  "mouth": {
+    "formula": "r1_eq1_literal",
+    "landmark_mapping_reviewed": false,
+    "mediapipe_points_p1_to_p8": null,
+    "maximum_open_reviewed": false,
+    "maximum_open_seconds": null,
+    "maximum_open_mean_mar": null,
+    "provenance": null
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "schema": "reviewed_video_calibration_v1",
+  "source_sha256": "763079e894b9c3a95c8e69d28acbb9417f1d651e3c45a37d1f66873d1a4e8c1d",
+  "neutral_open_reviewed": true,
+  "neutral_sample_count": 8,
+  "eye_baseline_mean": 0.3326660645827976,
+  "requested_threshold": 0.2494995484370982,
+  "applied_threshold": 0.2494995484370982,
+  "clamp_changed_threshold": false,
+  "eye_validation": {
+    "passed": false,
+    "checks": {
+      "validation_open_intervals": {
+        "total_samples": 3,
+        "valid_samples": 3,
+        "correct_samples": 3,
+        "all_valid_and_correct": true
+      },
+      "validation_closed_intervals": {
+        "total_samples": 9,
+        "valid_samples": 9,
+        "correct_samples": 2,
+        "all_valid_and_correct": false
+      }
+    },
+    "applied_threshold": 0.2494995484370982,
+    "eye_combine_method": "mean",
+    "baseline_method": "mean",
+    "scope": "reviewed intervals of this source video only; not clinical or independent accuracy",
+    "eye_hysteresis": 0.025
+  },
+  "provenance": {
+    "reviewer": "Codex visual review of selected original frames; acted behavior, not sleep ground truth",
+    "annotations": {
+      "reviewed": true,
+      "reviewer": "Codex visual review of selected original frames; acted behavior, not sleep ground truth",
+      "source_sha256": "763079e894b9c3a95c8e69d28acbb9417f1d651e3c45a37d1f66873d1a4e8c1d",
+      "records_sha256": "e160b607a86f98367701fcaf155c9e9f261cd8bef470ac06dab6884766744f2e",
+      "neutral_open_intervals": [
+        [
+          0.73,
+          1.2
+        ]
+      ],
+      "validation_open_intervals": [
+        [
+          2,
+          2.2
+        ]
+      ],
+      "validation_closed_intervals": [
+        [
+          4.2,
+          4.8
+        ]
+      ],
+      "review_note": "Initial 0-.8s had only two valid detected-face samples; use the separately reviewed .73-1.2s neutral-open interval without changing minimum sample requirements."
+    },
+    "records_note": "raw left/right EAR observations"
+  },
+  "nod": null,
+  "mouth": null
+}

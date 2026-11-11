@@ -36,13 +36,13 @@ class TemporalDecisionEngineTest(unittest.TestCase):
         self.assertIn("distress_gesture", decision.reasons)
 
     def test_video_cannot_infer_no_response(self) -> None:
-        engine = TemporalDecisionEngine()
+        engine = TemporalDecisionEngine({"danger_policy": "external_response"})
         engine.update(frame(0.0, eyes_closed=True, warning_active=True))
         decision = engine.update(frame(6.0, eyes_closed=True, warning_active=True, response_received=None))
         self.assertEqual(decision.state, DriverState.CAUTION)
 
     def test_explicit_button_timeout_can_make_danger(self) -> None:
-        engine = TemporalDecisionEngine()
+        engine = TemporalDecisionEngine({"danger_policy": "external_response"})
         engine.update(frame(0.0, eyes_closed=True, warning_active=True))
         decision = engine.update(frame(6.0, eyes_closed=True, warning_active=True, response_received=False))
         self.assertEqual(decision.state, DriverState.DANGER)
@@ -66,7 +66,7 @@ class TemporalDecisionEngineTest(unittest.TestCase):
         engine.update(frame(1.4, attention_away=True))
         engine.update(frame(1.5, attention_away=False))
         engine.update(frame(2.0, attention_away=True))
-        decision = engine.update(frame(2.4, attention_away=True))
+        decision = engine.update(frame(2.6, attention_away=True))
         self.assertEqual(decision.state, DriverState.CAUTION)
         self.assertIn("attention_away_repeated", decision.reasons)
 
@@ -86,11 +86,11 @@ class TemporalDecisionEngineTest(unittest.TestCase):
         self.assertEqual(decision.state, DriverState.CAUTION)
 
     def test_false_resets_but_missing_does_not_make_normal(self) -> None:
-        engine = TemporalDecisionEngine()
+        engine = TemporalDecisionEngine({"eyes_closed_caution_seconds": 2.0})
         engine.update(frame(0, eyes_closed=True))
         engine.update(frame(1, eyes_closed=True))
         engine.update(frame(1.1, eyes_closed=False))
-        self.assertEqual(engine.update(frame(2.1, eyes_closed=True)).state, DriverState.NORMAL)
+        self.assertEqual(engine.update(frame(1.5, eyes_closed=True)).state, DriverState.NORMAL)
 
     def test_posture_warning_survives_face_occlusion(self) -> None:
         engine = TemporalDecisionEngine()

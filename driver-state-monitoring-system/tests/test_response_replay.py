@@ -20,9 +20,11 @@ class ResponseReplayTest(unittest.TestCase):
             event_file = root / 'events.json'
             event_file.write_text(json.dumps(events))
             output = root / 'decisions.jsonl'
+            rules = root / 'legacy_rules.json'
+            rules.write_text(json.dumps(dict(danger_policy='external_response')))
             result = subprocess.run([sys.executable, str(ROOT / 'scripts/replay_response_events.py'),
                                      '--records', str(records), '--events', str(event_file),
-                                     '--output', str(output)], capture_output=True, text=True)
+                                     '--output', str(output), '--rules', str(rules)], capture_output=True, text=True)
             return result, [json.loads(line) for line in output.read_text().splitlines()] if output.exists() else []
 
     def test_no_event_does_not_infer_timeout(self):

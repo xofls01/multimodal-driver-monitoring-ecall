@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import hashlib
 import os
 import shutil
 import sys
@@ -37,6 +38,10 @@ from driver_state_tools.video_common import (  # noqa: E402
 )
 from driver_state_tools.vision_features import FeatureTracker, RawFeatures  # noqa: E402
 from driver_state_tools.vision_pipeline import VisionModels, draw_overlay  # noqa: E402
+from driver_state_tools.unity_bridge import vehicle_control_packet  # noqa: E402
+from driver_state_tools.unity_bridge import UnityStateServer  # noqa: E402
+from driver_state_tools.revision_session import RevisionSession, load_profile  # noqa: E402
+from driver_state_tools.analysis_publisher import AnalysisPublisher  # noqa: E402
 
 
 EXTENSIONS = [".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"]
@@ -56,6 +61,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stage-input", action="store_true", help="Copy each cloud-backed input to a local temp file")
     parser.add_argument("--no-video", action="store_true", help="Do not save annotated MP4 files")
     parser.add_argument("--eyes-occluded", action="store_true", help="Explicitly disable eye measurements for occluded-eye recordings")
+    parser.add_argument("--calibration-profile", type=Path, help="Reviewed, source-hash-bound calibration profile or collection")
+    parser.add_argument("--neutral-window",nargs=2,type=float,metavar=("START","END"),
+                        help="Prototype only: explicitly user-reviewed neutral/open-eye video interval, within the first 3s")
+    parser.add_argument("--unity", action="store_true", help="Publish CURRENT analyzed decisions to Unity TCP, not saved-log replay")
+    parser.add_argument("--unity-host", default="127.0.0.1")
+    parser.add_argument("--unity-port", type=int, default=5001)
+    parser.add_argument("--show", action="store_true", help="Display current analysis in an OpenCV window; saved video alone is not a live warning")
     return parser.parse_args()
 
 
@@ -81,7 +93,9 @@ def raw_record(raw: RawFeatures) -> dict[str, Any]:
         "head_drop_ratio": raw.head_drop_ratio,
         "pose_head_x": raw.pose_head_x,
         "phone_confidence": raw.phone_confidence,
+        "phone_boxes": raw.phone_boxes,
         "phone_track_mode": raw.phone_track_mode,
+        "handheld_objects": raw.handheld_objects,
         "hands_detected_count": len(raw.hand_landmarks),
         "hands_on_wheel_count": sum(raw.hand_on_wheel),
         "hands_on_phone_count": sum(raw.hand_phone_overlap),
@@ -93,6 +107,12 @@ def raw_record(raw: RawFeatures) -> dict[str, Any]:
         "rppg_forehead_skin_ratio": raw.rppg_forehead_skin_ratio,
         "rppg_cheeks_skin_ratio": raw.rppg_cheeks_skin_ratio,
         "quality_reasons": raw.quality_reasons,
+        "head_pitch_proxy": raw.head_pitch,
+        "head_yaw_proxy": raw.head_yaw,
+        "head_proxy_units": "relative_landmark_scaled_units_not_3d_degrees",
+        "gaze_observation": raw.gaze_observation,
+        "image_height": raw.image_height,
+        "image_width": raw.image_width,
     }
 
 
@@ -155,8 +175,12 @@ def analyze_video(
     config: dict[str, Any],
     rules: dict[str, Any],
     models: VisionModels,
+    state_server: UnityStateServer | None = None,
+    calibration_profile: dict | None = None,
+    show: bool = False,
 ) -> dict[str, Any]:
     cid = clip_id(source)
+    source_sha256 = hashlib.sha256(source.read_bytes()).hexdigest()
     capture = cv2.VideoCapture(str(source))
     if not capture.isOpened():
         capture.release()
@@ -175,19 +199,26 @@ def analyze_video(
     dashboard_width = max(0, int(round(float(config.get("dashboard_width", 420)) * output_height / 720))) // 2 * 2
     panel_source_width = int(round(dashboard_width * width / output_width)) if output_width > 0 else dashboard_width
     writer_width = (output_width + dashboard_width) // 2 * 2
+    border = round(int(config.get("output_border_pixels",0))*output_height/720) if rules.get("mode") == "prototype" else 0
+    writer_width += 2*border
+    writer_height = output_height+2*border
     output_fps = source_fps if config.get("output_source_fps", True) else actual_analysis_fps
     save_video = bool(config.get("save_annotated_video", True))
     video_path = output_root / "annotated_videos" / f"{cid}.mp4"
-    writer = open_writer(video_path, writer_width, output_height, output_fps) if save_video else None
+    writer = open_writer(video_path, writer_width, writer_height, output_fps) if save_video else None
     family = scenario_family(source)
     included_families = {str(item).upper() for item in config.get("rppg_included_scenario_families", [])}
     collect_rppg = bool(config.get("rppg_enabled", True)) and (
         not included_families or family.upper() in included_families
     )
     rppg_exclusion_reason = "presentation_protocol_non_normal" if not collect_rppg else ""
-    tracker = FeatureTracker(config)
+    session = RevisionSession(config, rules, calibration_profile)
+    tracker = session.tracker
     rppg_tracker = RPPGTracker(config, sample_rate_hint=source_fps)
-    engine = TemporalDecisionEngine(rules)
+    engine = session.engine
+    publisher = AnalysisPublisher(state_server)
+    if state_server is not None:
+        state_server.mark_unavailable("new_video_session")
     models.start_clip(eyes_occluded=capture_condition(source) == "S")
     raw = derived = decision = rppg = None
     records: list[dict[str, Any]] = []
@@ -214,10 +245,11 @@ def analyze_video(
                     rppg_tracker.update(models.extract_rppg_only(frame, timestamp))
                 if writer is not None and config.get("output_source_fps", True) and raw is not None:
                     annotated = draw_overlay(frame, raw, derived, decision, rppg, panel_source_width, config)
-                    writer.write(cv2.resize(annotated, (writer_width, output_height), interpolation=cv2.INTER_AREA))
+                    writer.write(cv2.resize(annotated, (writer_width, writer_height), interpolation=cv2.INTER_AREA))
                 continue
             raw = models.extract(frame, timestamp, collect_rppg=collect_rppg)
-            derived = tracker.update(raw)
+            publisher.before_observation(session, cid, timestamp)
+            derived, decision = session.update(raw)
             rppg = (
                 rppg_tracker.update(raw)
                 if collect_rppg
@@ -228,27 +260,16 @@ def analyze_video(
                     note="rPPG intentionally collected only for normal-scenario presentation clips",
                 )
             )
-            feature_frame = FeatureFrame(
-                timestamp=timestamp,
-                face_readable=derived.face_readable,
-                eyes_readable=derived.eyes_readable,
-                pose_readable=derived.pose_readable,
-                eyes_closed=derived.eyes_closed,
-                attention_away=derived.attention_away,
-                head_abnormal=derived.head_abnormal,
-                yawning=derived.mouth_open,
-                perclos_high=derived.perclos_high,
-                torso_lean=derived.torso_lean,
-                collapse_posture=derived.collapse_posture,
-                distress_gesture=derived.distress_gesture,
-                long_blinks_repeated=derived.long_blinks_repeated,
-                nods_repeated=derived.nods_repeated,
-                warning_active=False,
-                response_received=None,
-            )
-            decision = engine.update(feature_frame)
             annotated = draw_overlay(frame, raw, derived, decision, rppg, panel_source_width, config)
-            annotated = cv2.resize(annotated, (writer_width, output_height), interpolation=cv2.INTER_AREA)
+            annotated = cv2.resize(annotated, (writer_width, writer_height), interpolation=cv2.INTER_AREA)
+            if show:
+                cv2.imshow("Driver monitoring - current analysis", annotated)
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
+                request = decision.metadata.get("warning_request_id")
+                if request and cv2.getWindowProperty("Driver monitoring - current analysis", cv2.WND_PROP_VISIBLE) >= 1:
+                    session.confirm_warning(request, timestamp, "python_window")
+            publisher.publish(decision, cid)
             if writer is not None:
                 writer.write(annotated)
             if preview_interval > 0 and timestamp + 1e-6 >= preview_next:
@@ -258,11 +279,13 @@ def analyze_video(
                 "state": decision.state.value,
                 "reasons": decision.reasons,
                 "durations": decision.durations,
+                "metadata": decision.metadata,
             }
             records.append(
                 {
                     "schema_version": "1.0",
                     "clip_id": cid,
+                    "source_sha256": source_sha256,
                     "scenario_id": scenario_id(source),
                     "capture_condition": capture_condition(source),
                     "timestamp": round(timestamp, 6),
@@ -270,6 +293,8 @@ def analyze_video(
                     "derived": derived.to_dict(),
                     "rppg": rppg.to_dict(),
                     "decision": decision_dict,
+                    "literature_frame": session.record_frame() if session.literature else None,
+                    "prototype_frame": session.record_frame() if session.prototype else None,
                 }
             )
             state_counts[decision.state.value] += 1
@@ -287,6 +312,9 @@ def analyze_video(
                 hands_on_wheel_frames += int(any(raw.hand_on_wheel))
                 hands_on_phone_frames += int(any(raw.hand_phone_overlap))
     finally:
+        publisher.finish()
+        if show:
+            cv2.destroyWindow("Driver monitoring - current analysis")
         capture.release()
         if writer is not None:
             writer.release()
@@ -296,6 +324,16 @@ def analyze_video(
     with record_path.open("w", encoding="utf-8") as stream:
         for record in records:
             stream.write(json.dumps(record, ensure_ascii=False) + "\n")
+    # Explicit Unity input format for inspection or another consumer. Actual
+    # timed TCP delivery is separate from this offline inference workflow.
+    from driver_state_tools.decision_engine import Decision, DriverState
+    packet_path = output_root / "unity_packets" / f"{cid}.jsonl"
+    packet_path.parent.mkdir(parents=True, exist_ok=True)
+    with packet_path.open("w", encoding="utf-8") as stream:
+        for sequence, record in enumerate(records, 1):
+            data = record["decision"]
+            item = Decision(record["timestamp"], DriverState(data["state"]), data["reasons"], data["durations"], data.get("metadata", {}))
+            stream.write(json.dumps(vehicle_control_packet(item, sequence, clip_id=cid), ensure_ascii=False) + "\n")
     segments = create_segments(records, 1.0 / actual_analysis_fps)
     segment_path = output_root / "event_segments" / f"{cid}.csv"
     segment_path.parent.mkdir(parents=True, exist_ok=True)
@@ -309,6 +347,7 @@ def analyze_video(
     elapsed = time.monotonic() - start_time
     return {
         "relative_path": relative_path.as_posix(),
+        "source_sha256": source_sha256,
         "clip_id": cid,
         "scenario_id": scenario_id(source),
         "capture_condition": capture_condition(source),
@@ -321,7 +360,8 @@ def analyze_video(
         "decoded_frames": frame_index + 1,
         "analysis_fps": round(actual_analysis_fps, 6),
         "output_width": writer_width,
-        "output_height": output_height,
+        "output_height": writer_height,
+        "outside_border_pixels": border,
         "analyzed_frames": count,
         "face_readable_ratio": round(face_ok / count, 4) if count else 0,
         "eyes_readable_ratio": round(eyes_ok / count, 4) if count else 0,
@@ -352,7 +392,12 @@ def analyze_video(
         "annotated_video": str(video_path.relative_to(output_root)) if writer is not None else "",
         "frame_records": str(record_path.relative_to(output_root)),
         "event_segments": str(segment_path.relative_to(output_root)),
+        "unity_packets": str(packet_path.relative_to(output_root)),
         "note": "acted feasibility clip; states are prototype outputs, not medical diagnoses",
+        "judgment_mode": rules.get("mode", "legacy"),
+        "current_decisions_published": publisher.published_count,
+        "feature_status_at_end": decision.metadata.get("feature_status", {}) if decision else {},
+        "unity_editor_run_verified": False,
     }
 
 
@@ -360,6 +405,15 @@ def main() -> int:
     args = parse_args()
     config = load_json(args.config)
     rules = load_json(args.rules)
+    if args.neutral_window is not None:
+        import math
+        start,end=args.neutral_window
+        if rules.get("mode")!="prototype" or not all(math.isfinite(v) for v in (start,end)) or not 0<=start<end<=3:
+            raise SystemExit("--neutral-window requires prototype mode and 0 <= START < END <= 3")
+    # The UI must display the actual experiment thresholds, not hard-coded values.
+    config["decision_rules"] = rules
+    if args.calibration_profile is None and config.get("calibration_profile"):
+        args.calibration_profile = PROJECT_ROOT/config["calibration_profile"]
     if args.analysis_fps is not None:
         config["analysis_fps"] = args.analysis_fps
     if args.device:
@@ -386,6 +440,9 @@ def main() -> int:
         raise SystemExit(f"duplicate clip IDs would overwrite results: {duplicate_ids}; run these sources into separate output folders")
     output_root.mkdir(parents=True, exist_ok=True)
     models = VisionModels(config, PROJECT_ROOT)
+    server = UnityStateServer(args.unity_host, args.unity_port, log_path=output_root/"unity_transport.jsonl").start() if args.unity else None
+    if server is not None:
+        print(f"Current-analysis TCP server: {args.unity_host}:{server.port}; no saved-log replay", flush=True)
     summaries: list[dict[str, Any]] = []
     try:
         for index, video in enumerate(videos, start=1):
@@ -401,7 +458,13 @@ def main() -> int:
                     else:
                         read_path = video
                     print(f"[{index}/{len(videos)}] analyzing {relative}", flush=True)
-                    summary = analyze_video(read_path, Path(relative), output_root, config, rules, models)
+                    profile = (dict(schema="reviewed_neutral_window_v1",reviewed=True,
+                                    source_sha256=hashlib.sha256(read_path.read_bytes()).hexdigest(),
+                                    neutral_window=args.neutral_window,
+                                    provenance="Neutral/open-eye interval explicitly supplied by user via --neutral-window")
+                               if args.neutral_window is not None else load_profile(args.calibration_profile, read_path))
+                    summary = analyze_video(read_path, Path(relative), output_root, config, rules, models,
+                                            state_server=server, calibration_profile=profile, show=args.show)
                     # Staging changes the path stem only if a caller renamed it; provenance must use source.
                     summary["clip_id"] = clip_id(video)
                     summary["scenario_id"] = scenario_id(video)
@@ -436,6 +499,8 @@ def main() -> int:
                 checkpoint_writer.writerows(summaries)
     finally:
         models.close()
+        if server is not None:
+            server.stop()
 
     summary_csv = output_root / "video_summary.csv"
     fieldnames = sorted({key for row in summaries for key in row})
@@ -454,7 +519,7 @@ def main() -> int:
         "limitations": [
             "The clips contain acted behavior and do not establish drowsiness, loss of consciousness, or cardiac events.",
             "Pretrained COCO YOLO is used only for pose and phone detection; eye closure and mouth opening are landmark-derived.",
-            "No-response is not inferred from video, so the video-only run does not enter danger on that basis.",
+            "Literature mode has only validated continuous-eye-closure or acknowledged distraction-warning stop paths; missing readiness disables those paths.",
             "Hands-on-wheel remains unknown until wheel_roi is calibrated for the camera.",
         ],
     }
