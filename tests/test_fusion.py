@@ -1,6 +1,11 @@
 """통합 판단 시나리오 테스트. 실행: python -m unittest tests.test_fusion -v"""
+import csv
+import json
+import math
 import os
+import subprocess
 import sys
+import tempfile
 import unittest
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
@@ -9,7 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from biosignal import BioSignalMonitor, Config
 from biosignal import simulate as sim
-from fusion import FusionConfig, FusionEngine, can_from_unity_state
+from fusion import FusionConfig, FusionEngine, can_from_csv_row, can_from_unity_state
 
 
 @dataclass
@@ -292,6 +297,75 @@ class Can(unittest.TestCase):
         last = d.run(21, NORMAL_BIO, NORMAL_VISION, steering=jerky)
         self.assertEqual((last.level, last.driver_state), ("caution", "D"))
         self.assertIn("CAN:ERRATIC_CONTROL", last.reasons)
+
+    def drift_drive(self, vision, seconds=20.0, torque_on=0.35):
+        """3초마다 토크 없이 왼쪽으로 쏠렸다가(0.4초) 토크를 주며 오른쪽으로 복귀하는 조향."""
+        engine = FusionEngine()
+        rows = []
+        for i in range(int(seconds * 10)):
+            t = i * 0.1
+            phase = t % 5.0
+            if 3.0 <= phase < 3.4:
+                steer, torque = -1.0 / 30, 0.02
+            elif 3.4 <= phase < 4.0:
+                steer, torque = 1.2 / 30, torque_on
+            else:
+                steer, torque = 0.0, 0.02
+            engine.push_bio(t, Bio())
+            engine.push_vision(t, vision(t))
+            engine.push_can(t, steer, 0.22, 0.0, True, 60.0, torque)
+            rows.append(engine.update(t))
+        return rows
+
+    def test_hands_off_drift_then_correction_is_drowsy_caution(self):
+        rows = self.drift_drive(lambda t: Vision())
+        hit = next(r for r in rows if "CAN:DRIFT_CORRECTION" in r.reasons)
+        self.assertAlmostEqual(hit.t, 3.4, delta=0.15)
+        self.assertEqual((hit.level, hit.driver_state), ("caution", "D"))
+        self.assertTrue(all(r.level == "normal" for r in rows if 1.0 < r.t < 3.3))
+
+    def test_steering_without_torque_is_not_a_response(self):
+        """손에 힘이 없는 채로 차가 비틀거리는 것은 운전자 응답이 아니다."""
+        engine = FusionEngine()
+        for i in range(400):
+            t = i * 0.1
+            closed = t >= 20
+            engine.push_bio(t, Bio())
+            engine.push_vision(t, eyes_closed(t - 20) if closed else Vision())
+            steer = 0.05 * math.sin(t) if closed else 0.0
+            engine.push_can(t, steer, 0.22, 0.0, True, 60.0, 0.02)
+            last = engine.update(t)
+        self.assertEqual(last.level, "danger")
+
+    def test_csv_row_adapter(self):
+        row = dict(steering_angle_deg="1.5", accelerator_pedal_pct="22", brake_pedal_pct="0",
+                   vehicle_speed_kph="60", steering_torque_nm="0.35")
+        kw = can_from_csv_row(row)
+        self.assertAlmostEqual(kw["steering"], 0.05)
+        self.assertAlmostEqual(kw["throttle"], 0.22)
+        self.assertEqual(kw["steering_torque"], 0.35)
+        self.assertIsNone(can_from_csv_row({**row, "steering_torque_nm": ""})["steering_torque"])
+
+    def test_replay_tool_runs_on_files(self):
+        with tempfile.TemporaryDirectory() as folder:
+            can = os.path.join(folder, "can.csv")
+            with open(can, "w", newline="", encoding="utf-8") as f:
+                w = csv.writer(f)
+                w.writerow(["time_s", "steering_angle_deg", "accelerator_pedal_pct", "brake_pedal_pct",
+                            "vehicle_speed_kph", "steering_torque_nm", "ground_truth_state"])
+                for i in range(75):
+                    t = i * 0.2
+                    steer, torque = (-1.0, 0.02) if 3.0 <= t < 3.4 else (1.2, 0.35) if 3.4 <= t < 4.0 else (0.0, 0.02)
+                    w.writerow([t, steer, 22, 0, 60, torque, "Caution" if 3.0 <= t < 5.0 else "Normal"])
+            out = os.path.join(folder, "out.jsonl")
+            tool = os.path.join(os.path.dirname(__file__), "..", "tools", "replay_fusion.py")
+            result = subprocess.run([sys.executable, tool, "--can", can, "--out", out],
+                                    capture_output=True, text=True, encoding="utf-8",
+                                    env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            with open(out, encoding="utf-8") as f:
+                levels = [json.loads(line)["level"] for line in f]
+            self.assertIn("caution", levels)
 
     def test_unity_state_adapter(self):
         state = dict(steering=0.1, throttle=0.08, brake=0.0, speed_kph=59.4, control_mode="Cruise")

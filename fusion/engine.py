@@ -99,8 +99,9 @@ class FusionEngine:
         self._vision, self._vision_t = decision, now
 
     def push_can(self, now: float, steering: float, throttle: float, brake: float,
-                 driver_input_valid: bool = True, speed_kph: Optional[float] = None) -> None:
-        self.can.push(now, steering, throttle, brake, driver_input_valid, speed_kph)
+                 driver_input_valid: bool = True, speed_kph: Optional[float] = None,
+                 steering_torque: Optional[float] = None) -> None:
+        self.can.push(now, steering, throttle, brake, driver_input_valid, speed_kph, steering_torque)
 
     def push_button(self, now: float) -> None:
         """운전자가 '괜찮음' 버튼을 눌렀다."""
@@ -165,7 +166,10 @@ class FusionEngine:
 
         # 4) 주의 근거
         caution = self._check is not None or bio_level in (CAUTION, DANGER) or vision_state == CAUTION
-        if can.valid and can.abrupt_count >= cfg.abrupt_repeat_count:
+        if can.drift_confirmed:
+            caution = True
+            reasons.append("CAN:DRIFT_CORRECTION")
+        elif can.valid and can.abrupt_count >= cfg.abrupt_repeat_count:
             caution = True
             reasons.append("CAN:ERRATIC_CONTROL")
         if self._no_input(can, cfg.no_input_alone_s):
@@ -259,7 +263,7 @@ class FusionEngine:
             return "health"
         if v_set == {"recovering"} and self._category:
             return self._category  # 분류가 바뀌면 Unity가 새 경고로 보고 경고창을 다시 띄운다
-        if v_set & V_DROWSY or "CAN:ERRATIC_CONTROL" in reasons:
+        if v_set & V_DROWSY or {"CAN:ERRATIC_CONTROL", "CAN:DRIFT_CORRECTION"} & set(reasons):
             return "drowsy"
         if v_set & V_ATTENTION:
             return "attention"

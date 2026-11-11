@@ -31,13 +31,16 @@ class FusionConfig:
     stopped_brake: float = 0.1
     stopped_brake_hold_s: float = 2.0
 
-    # --- CAN: 급조작 ---
+    # --- CAN: 쏠림 후 복귀 조향 (졸다가 깨서 바로잡는 패턴) ---
+    drift_quiet_s: float = 2.0       # 이 시간 조향이 조용하다가 한쪽으로 움직이면 쏠림 후보
+    correction_delta: float = 0.04   # 쏠린 끝에서 반대로 이만큼 돌아오면 복귀. Unity 기준 1.2도
+    correction_window_s: float = 1.5
+    hands_on_torque_nm: float = 0.1  # 이 토크 미만이면 손이 핸들에 힘을 주지 않은 것으로 본다
     abrupt_window_s: float = 0.5
-    abrupt_steer_delta: float = 0.5
-    abrupt_quiet_before_s: float = 5.0  # 무수정 뒤 급수정 패턴에서 '무수정'으로 볼 시간. 패턴만 문헌에 있고 수치는 설계값
     hard_brake_delta: float = 0.6
-    abrupt_repeat_count: int = 2     # 한 번은 회피 조작일 수 있어 반복될 때만 주의로 본다
+    abrupt_repeat_count: int = 2     # 토크가 없으면 한 번은 의도한 조작일 수 있어 반복될 때만 주의로 본다
     abrupt_repeat_window_s: float = 60.0
+    can_note_s: float = 5.0          # 쏠림 후 복귀·급제동을 판단에 남기는 시간
 
     # --- 응답 확인 창: 경고 후 이 시간 안에 조작이 없으면 위험 ---
     window_corroborated_s: float = 5.0   # [비전] danger_after_warning_seconds. 근거가 둘 이상일 때
@@ -55,4 +58,3 @@ class FusionConfig:
     bio_danger_immediate: bool = False  # True면 생체 위험을 응답 확인 없이 바로 위험으로 올린다
     startup_s: float = 20.0          # 생체 기준선(10초 이상)과 비전 보정(최대 6초)을 기다린다
     clear_hold_s: float = 5.0        # 주의 해제 전 유지 시간. Unity 경고창이 반복해서 뜨는 것을 막는다
-    hard_brake_note_s: float = 5.0   # 급제동을 사유에 남기는 시간
