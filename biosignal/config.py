@@ -41,11 +41,14 @@ class Config:
     amp_floor_ratio: float = 0.2    # 평소 진폭의 이 비율 미만인 피크는 잡음으로 버림
     quiet_ratio: float = 0.3        # 최근 신호 진폭이 평소의 이 비율 미만이면 '평탄'
 
-    # --- 심박 임계값 ---
-    hr_extreme_low: float = 40.0    # [요구] 극단적 서맥
-    hr_extreme_high: float = 150.0  # [요구] 극단적 빈맥
-    hr_caution_low: float = 50.0    # [근거] 이 값 미만이면 서맥
-    hr_caution_high: float = 100.0  # [근거] 이 값 초과면 정상 범위 밖
+    # --- 심박 임계값 (판단 기준 PPT) ---
+    # 정상 51~100 / 주의 41~50, 101~130 (10초) / 위험 40 이하, 131 이상 (두 센서가 5초)
+    hr_extreme_low: float = 40.0    # [요구] 이 값 이하는 위험
+    hr_danger_high: float = 131.0   # [요구][근거] 이 값 이상은 위험. 제안서 요구값, AHA 빈맥 알고리즘
+    hr_extreme_high: float = 150.0  # 한 센서만 이 범위(40 이하·150 이상)를 재고 다른 센서를 못 믿으면 판단 불가
+    hr_caution_low: float = 50.0    # [근거] 이 값 이하면 주의 (41~50)
+    hr_caution_high: float = 100.0  # [근거] 이 값 초과면 주의 (101~130)
+    hr_mismatch_bpm: float = 10.0   # 두 센서가 모두 깨끗한데 심박수가 이만큼 넘게 다르면 판단 불가. Nano 펌웨어 기준
 
     # --- 개인 기준선: 시작 후 첫 10초의 심박수 ---
     calibration_s: float = 10.0
@@ -64,9 +67,15 @@ class Config:
     no_pulse_s: float = 8.0         # 맥박 확인 상한 10초([근거]) 안에 들도록 정한 값
     extreme_hold_s: float = 5.0
     caution_hold_s: float = 10.0
-    abrupt_hold_s: float = 5.0
+    abrupt_hold_s: float = 7.0
     irregular_hold_s: float = 20.0
     clear_hold_s: float = 10.0      # 이 시간 동안 정상이어야 경고 해제
+    # 측정이 이 시간 이하로 끊겼다 돌아오면 지속 시간 타이머를 이어서 잰다.
+    # 진동·움직임 잡음 1~2초 때문에 10초 판정을 처음부터 다시 하지 않도록 한다
+    gap_tolerance_s: float = 3.0
+    # 판단 불가가 이 시간 안에 끝나면 직전 등급(주의)에서 다시 시작해 clear_hold_s를 거쳐 해제한다.
+    # 잡음 한 번으로 주의가 곧바로 정상이 되지 않도록 한다
+    resume_memory_s: float = 30.0
 
     # --- HRV / 불규칙 / 졸음 참고 지표 ---
     hrv_window_s: float = 60.0

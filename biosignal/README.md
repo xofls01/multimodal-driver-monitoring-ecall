@@ -19,19 +19,28 @@ ECG·PPG 파형에서 심박수(bpm)를 구하고, 첫 10초의 개인 기준선
 
 ## 판정 기준과 근거
 
+판단 기준은 `생체신호 판단 기준.pptx`를 따른다.
+
 | 등급 | 기준 | 화면 문구 | 근거 |
 |---|---|---|---|
-| 위험 | ECG·PPG 모두 박동 소실, ECG 이상 + 맥박 소실 | `NO PULSE` | 설계값. 8초 지속은 맥박 확인 상한 10초[4] 안에 들도록 정함 |
-| 위험 | 40 bpm 이하 또는 150 bpm 이상을 두 센서가 확인 | `VERY LOW BPM`, `VERY HIGH BPM` | 제안서 요구값. 150은 [3]과 일치 |
-| 위험 | 모델이 VF/VT 의심 + 두 번째 근거 | `DANGEROUS RHYTHM` | 학습 라벨 |
-| 주의 | 위험 근거가 센서 하나뿐 | `... (1 SENSOR)`, `SENSOR MISMATCH` | 설계값 |
-| 주의 | 모든 센서에서 박동이 3초 넘게 끊기고 신호가 평탄 | `HEARTBEAT PAUSE` | 동정지 정의 3초 초과[1] |
-| 주의 | 50 bpm 미만 10초 지속 | `LOW BPM` | 서맥 정의[1] |
-| 주의 | 100 bpm 초과 10초 지속 | `HIGH BPM` | 정상 범위 50–100 bpm[2] |
-| 주의 | 기준선 대비 ±25 bpm 또는 ±30% 중 큰 값 이상, 5초 지속 | `BPM RISING`, `BPM FALLING` | 설계값. 공개 임계값을 찾지 못함 |
-| 주의 | 모델 주의 판정 10초, RR 변동계수 0.2 초과 20초 | `ABNORMAL RHYTHM`, `IRREGULAR RHYTHM` | 학습 라벨, 설계값 |
-| 정상 | 그 외 | 이유 없음 | |
-| 측정 불가 | 기준선 측정 중, 잡음, 평탄, 포화, 전극·센서 탈락 | `SENSOR OFF`, `POOR SIGNAL` | |
+| 위험 | ECG·PPG 모두 박동 소실 8초 이상 | `NO PULSE` | 맥박 확인 상한 10초[4] 안에 들도록 정함 |
+| 위험 | ECG 모델이 깨끗한 ECG를 이상 리듬으로 판정 + PPG 맥박 소실 | `NO PULSE + ABNORMAL ECG` | 학습 라벨 |
+| 위험 | 40 bpm 이하 또는 131 bpm 이상을 두 센서가 5초 이상 확인 | `VERY LOW BPM`, `VERY HIGH BPM` | 제안서 요구값, 국내 심폐소생술 가이드라인 인용 연구, AHA 빈맥 알고리즘 130 |
+| 주의 | 41–50 bpm 10초 지속 | `LOW BPM` | 서맥 정의 50 미만[1], 조기 경고 점수 1점 구간 |
+| 주의 | 101–130 bpm 10초 지속 (한 센서만 잰 131–149 포함) | `HIGH BPM` | 정상 범위 50–100[2], 조기 경고 점수 1–2점 구간 |
+| 주의 | 기준선 대비 ±25 bpm 또는 ±30% 중 큰 값 이상, 7초 지속 | `BPM RISING`, `BPM FALLING` | 설계값. 공개 임계값을 찾지 못함 |
+| 주의 | ECG는 정상인데 PPG 맥박만 소실, 두 센서 모두 박동이 3초 넘게 끊김 | `NO PULSE? (1 SENSOR)`, `HEARTBEAT PAUSE` | 설계값. 비전과 합쳐 판단 |
+| 주의 | 모델 주의 판정 10초, RR 변동계수 0.2 초과 20초 | `ABNORMAL RHYTHM`, `IRREGULAR RHYTHM` | 정상 조건 "박동이 규칙적" |
+| 정상 | 51–100 bpm, 기준선과 변화가 작고 박동이 규칙적 | 이유 없음 | |
+| 판단 불가 | 기준선 측정 중(처음 10초) | `MEASURING BASELINE` | |
+| 판단 불가 | 두 센서 포화(최근 12초의 5% 넘게 ECG 8 이하·742 이상, PPG 8 이하·890 이상) 또는 1.5초 넘게 수신 끊김 | `SENSOR OFF` | 실측 기록 |
+| 판단 불가 | 기준선 측정 뒤에도 두 센서 신호 품질 0.5 미만 | `POOR SIGNAL` | |
+| 판단 불가 | 두 센서 모두 깨끗한데 심박수가 10 bpm 넘게 다름 | `ECG/PPG BPM MISMATCH` | Nano 펌웨어의 일치 기준 |
+| 판단 불가 | 한 센서만 위험 범위(40 이하·150 이상) 또는 박동 소실, 다른 센서는 잡음 | `... (1 SENSOR)` | 위험은 두 센서 확인이 필요 |
+| 판단 불가 | ECG에 리듬 없는 잡음만 있고 PPG 맥박 소실 | `NOISY ECG + NO PULSE` | 심실세동은 ECG 모델이 따로 판정 |
+
+- 주의 상태에서 신호를 믿을 수 없게 되면 바로 판단 불가로 바꾼다. 위험이었다면 위험을 유지한다.
+- 판단 불가 동안은 영상·CAN 데이터로 판단한다(`needs_second_opinion=True`).
 
 - [1] Kusumoto et al., [2018 ACC/AHA/HRS Bradycardia Guideline](https://doi.org/10.1161/CIR.0000000000000627), Circulation 2019: 동서맥 50 bpm 미만, 동정지 3초 초과. 원문 확인.
 - [2] [ACC 보도자료](https://www.acc.org/about-acc/press-releases/2018/11/06/13/31/societies-publish-new-guidance-for-the-treatment-of-slow-irregular-heartbeats): 정상 심박 50–100 bpm. 원문 확인.
@@ -108,16 +117,19 @@ python tools/replay_recording.py "<측정 폴더>" --model models/hr_classifier.
 | 코드 | 의미 |
 |---|---|
 | `NO_PULSE_CONFIRMED` | ECG와 PPG 모두 박동 소실 (`danger`) |
-| `CHAOTIC_ECG_NO_PULSE`, `ABNORMAL_ECG_NO_PULSE` | ECG 비정상 + PPG 맥박 소실 (`danger`) |
+| `ABNORMAL_ECG_NO_PULSE` | ECG 모델 이상 판정 + PPG 맥박 소실 (`danger`) |
+| `CHAOTIC_ECG_NO_PULSE` | 리듬 없는 ECG 잡음 + PPG 맥박 소실 (`unavailable`) |
 | `MODEL_DANGER`, `EXTREME_BRADY`, `EXTREME_TACHY` | 위험 등급 심박을 두 센서가 확인 (`danger`) |
-| `*_UNCONFIRMED`, `NO_PULSE_UNCONFIRMED` | 위험 근거가 하나뿐 (`caution`) |
+| `*_UNCONFIRMED` | 한 센서만 위험 범위, 다른 센서는 잡음 (`unavailable`) |
+| `NO_PULSE_UNCONFIRMED` | ECG 정상 + PPG 맥박만 소실이면 `caution`, 다른 센서가 잡음이면 `unavailable` |
+| `SENSOR_MISMATCH` | 두 센서 심박수 10 bpm 넘게 차이 (`unavailable`) |
 | `SENSOR_CONFLICT` | 한 센서만 위험 (`caution`) |
-| `HEART_PAUSE` | 모든 센서에서 박동이 끊기고 신호가 평탄, 위험 확정 전 단계 (`caution`) |
+| `HEART_PAUSE` | 두 센서 모두에서 박동이 끊기고 신호가 평탄, 위험 확정 전 단계 (`caution`) |
 | `HR_HIGH`, `HR_LOW`, `MODEL_CAUTION` | 주의 등급 심박 지속 (`caution`) |
 | `HR_RISING`, `HR_FALLING` | 개인 기준선 대비 상승·하강 (`caution`) |
 | `IRREGULAR_RHYTHM` | 불규칙 리듬 지속 (`caution`) |
 | `SENSOR_LOST`, `LOW_SIGNAL_QUALITY`, `CALIBRATING` | 측정 불가 (`unavailable`) |
-| `HOLD_PREVIOUS_LEVEL` | 경고 해제 대기, `danger`는 정상 신호 확인 전까지 유지 |
+| `HOLD_PREVIOUS_LEVEL` | 경고 해제 대기(10초), `danger`는 정상 신호 확인 전까지 유지. 주의 중 판단 불가가 30초 안에 끝나면 주의에서 다시 시작해 해제 대기를 거친다 |
 | `DROWSY_HINT` | 졸음 참고 지표, 등급에 영향 없음 |
 
 ## PPG 사전학습 모델
