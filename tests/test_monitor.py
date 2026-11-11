@@ -43,7 +43,9 @@ class Scenarios(unittest.TestCase):
         self.assertLessEqual(max(errs), 5.0)
 
     def test_arrest_is_danger_when_both_sensors_agree(self):
-        for name in ("cardiac_arrest", "ventricular_fibrillation"):
+        # 심실세동은 ECG 모델이 판정한다. 규칙만으로는 리듬 없는 잡음과 구분할 수 없어 판단 불가다
+        names = ["cardiac_arrest"] + (["ventricular_fibrillation"] if MODELS["model_path"] else [])
+        for name in names:
             s, rows = run(name)
             self.assertEqual(rows[-1].level, "danger", name)
             self.assertNotIn("danger", {st.level for st in rows if st.t < s.onset}, name)
@@ -56,11 +58,39 @@ class Scenarios(unittest.TestCase):
             self.assertEqual(rows[-1].level, "danger", name)
             self.assertEqual(rows[-1].hr_class, "danger", name)
 
-    def test_single_sensor_evidence_stays_caution(self):
-        for name in ("ecg_only_arrest", "ecg_only_tachycardia"):
+    def test_chaotic_ecg_without_model_is_unavailable(self):
+        if MODELS["model_path"]:
+            self.skipTest("모델 경로에서는 위험으로 판정한다")
+        _, rows = run("ventricular_fibrillation")
+        self.assertEqual(rows[-1].level, "unavailable")
+        self.assertIn("CHAOTIC_ECG_NO_PULSE", rows[-1].reasons)
+
+    def test_single_sensor_danger_is_unavailable(self):
+        """판단 불가 4·5번: 위험 근거가 한 센서뿐이고 다른 센서를 믿을 수 없다."""
+        for name, reason in (("ecg_only_arrest", "NO_PULSE_UNCONFIRMED"),
+                             ("ecg_only_tachycardia", "EXTREME_TACHY_UNCONFIRMED")):
             _, rows = run(name)
-            self.assertEqual(rows[-1].level, "caution", name)
+            self.assertEqual(rows[-1].level, "unavailable", name)
+            self.assertIn(reason, rows[-1].reasons, name)
             self.assertTrue(rows[-1].needs_second_opinion, name)
+
+    def test_single_sensor_140_is_caution(self):
+        """한 센서만 131~149회면 위험도 판단 불가도 아니고 주의다."""
+        s = sim.ecg_only_tachycardia()
+        s2 = sim.build(seed=0, hr_fn=lambda t: 72.0 if t < 60 else 140.0)
+        s.ecg = s2.ecg
+        rows = list(sim.replay(BioSignalMonitor(Config()), s))
+        self.assertEqual(rows[-1].level, "caution")
+        self.assertIn("HR_HIGH", rows[-1].reasons)
+
+    def test_sensor_mismatch_is_unavailable(self):
+        """판단 불가 3번: 두 센서가 깨끗한데 심박수가 10회 넘게 다르다."""
+        s = sim.build(seed=0, hr_fn=lambda t: 72.0)
+        p = sim.build(seed=1, hr_fn=lambda t: 72.0 if t < 40 else 95.0)
+        s.ppg = p.ppg
+        rows = list(sim.replay(BioSignalMonitor(Config()), s))
+        self.assertEqual(rows[-1].level, "unavailable")
+        self.assertIn("SENSOR_MISMATCH", rows[-1].reasons)
 
     def test_electrode_off_is_not_cardiac_arrest(self):
         _, rows = run("electrode_off")
@@ -85,6 +115,33 @@ class Scenarios(unittest.TestCase):
         s.ppg_contact[s.ppg_t >= cut] = False
         rows = list(sim.replay(BioSignalMonitor(Config(), **MODELS), s))
         self.assertEqual(rows[-1].level, "danger")
+
+    def test_short_sensor_gap_does_not_clear_caution(self):
+        """주의 중 2초 센서 끊김: 그동안은 판단 불가, 돌아오면 바로 주의. 정상으로 새지 않는다."""
+        s = sim.tachycardia_mild()
+        a, b = 100.0, 102.0
+        s.ecg_lo[(s.ecg_t >= a) & (s.ecg_t < b)] = True
+        s.ppg_contact[(s.ppg_t >= a) & (s.ppg_t < b)] = False
+        rows = list(sim.replay(BioSignalMonitor(Config(), **MODELS), s))
+        before = [st.level for st in rows if 90 <= st.t < a]
+        gap = [st.level for st in rows if a <= st.t < b]
+        after = [st.level for st in rows if st.t >= b]
+        self.assertEqual(set(before), {"caution"})
+        self.assertEqual(set(gap), {"unavailable"})  # 판단 불가 7번은 그대로
+        self.assertEqual(set(after), {"caution"})
+
+    def test_long_sensor_gap_still_needs_clear_hold(self):
+        """주의 중 15초 끊긴 뒤 정상 심박으로 돌아와도 clear_hold_s 동안은 주의를 유지한다."""
+        s = sim.build(dur=150.0, seed=0, hr_fn=lambda t: 72.0 if t < 60 or t >= 100 else 125.0,
+                      onset=60.0)
+        a, b = 100.0, 115.0
+        s.ecg_lo[(s.ecg_t >= a) & (s.ecg_t < b)] = True
+        s.ppg_contact[(s.ppg_t >= a) & (s.ppg_t < b)] = False
+        cfg = Config()
+        rows = list(sim.replay(BioSignalMonitor(cfg, **MODELS), s))
+        normal_t = next(st.t for st in rows if st.t >= b and st.level == "normal")
+        self.assertGreaterEqual(normal_t - b, cfg.clear_hold_s - 3.0)
+        self.assertEqual(rows[-1].level, "normal")
 
     def test_stale_stream_is_not_danger(self):
         s = sim.normal()
@@ -142,12 +199,23 @@ class HeartRateBands(unittest.TestCase):
             self.assertIn(reason, rows[-1].reasons, name)
 
     def test_boundaries_follow_guideline_definitions(self):
-        for hr, level in ((100.0, "normal"), (104.0, "caution"), (54.0, "normal"), (46.0, "caution")):
+        # 정상 51~100 / 주의 41~50, 101~130 / 위험 40 이하, 131 이상
+        for hr, level in ((100.0, "normal"), (104.0, "caution"), (54.0, "normal"), (46.0, "caution"),
+                          (128.0, "caution"), (136.0, "danger"), (38.0, "danger")):
             s = sim.build(dur=45.0, seed=0, hr_fn=lambda t, hr=hr: 72.0 if t < 20 else hr)
             rows = list(sim.replay(BioSignalMonitor(Config()), s))
             # 72에서 잰 기준선이 있으므로 상승·하강 사유는 빼고 절대값 사유만 본다
+            if level == "danger":
+                self.assertEqual(rows[-1].level, "danger", f"hr={hr}: {rows[-1].reasons}")
+                continue
             flagged = bool({"HR_HIGH", "HR_LOW"} & set(rows[-1].reasons))
             self.assertEqual(flagged, level == "caution", f"hr={hr}: {rows[-1].reasons} {rows[-1].hr}")
+
+    def test_exact_boundaries(self):
+        mon = BioSignalMonitor(Config())
+        for hr, cls in ((40, "danger"), (41, "caution"), (50, "caution"), (51, "normal"),
+                        (100, "normal"), (101, "caution"), (130, "caution"), (131, "danger")):
+            self.assertEqual(mon._rule_class(float(hr)), cls, hr)
 
 
 class SuddenArrest(unittest.TestCase):

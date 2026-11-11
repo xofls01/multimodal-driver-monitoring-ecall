@@ -96,6 +96,9 @@ class BioSignalMonitor:
         self._level = UNAVAILABLE
         self._lower_since: Optional[float] = None
         self._since: Dict[str, float] = {}
+        self._gap_since: Dict[str, float] = {}
+        self._resume_level: Optional[str] = None   # 판단 불가 직전의 등급
+        self._unavailable_since: Optional[float] = None
         self._last_t: Optional[float] = None
         self._first_t: Optional[float] = None
         self._baseline: Optional[float] = None
@@ -137,6 +140,7 @@ class BioSignalMonitor:
         reasons: List[str] = []
         second_opinion = False
         cand = NORMAL
+        untrusted = False  # 판단 불가 조건. 주의는 판단 불가로 바꾸고, 위험은 그대로 둔다
 
         def raise_to(level: str, reason: str, ask: bool = False) -> None:
             nonlocal cand, second_opinion
@@ -145,6 +149,12 @@ class BioSignalMonitor:
             reasons.append(reason)
             second_opinion = second_opinion or ask
 
+        def cannot_judge(reason: str) -> None:
+            nonlocal untrusted, second_opinion
+            untrusted = True
+            second_opinion = True
+            reasons.append(reason)
+
         # 1) 맥박 소실
         ecg_flat = self._absent(ecg, require_known_contact=False)
         ppg_flat = self._absent(ppg, require_known_contact=True)
@@ -152,35 +162,53 @@ class BioSignalMonitor:
                        and not ecg.quiet and ecg.no_rhythm_s is not None
                        and ecg.no_rhythm_s >= cfg.no_pulse_s)
         if ecg_flat and ppg_flat:
+            # [위험 1] ECG·PPG 모두 박동 소실 8초
             raise_to(DANGER, "NO_PULSE_CONFIRMED")
-        elif ecg_chaotic and ppg_flat:
-            raise_to(DANGER, "CHAOTIC_ECG_NO_PULSE")
         elif ppg_flat and ecg.reliable and model_label in (CAUTION, DANGER):
-            # 맥박이 사라졌는데 모델도 ECG를 비정상으로 본다: VF를 caution으로 봐도 놓치지 않는다
+            # [위험 2] 모델이 깨끗한 ECG를 이상 리듬으로 보는데 PPG 맥박까지 사라짐
             raise_to(DANGER, "ABNORMAL_ECG_NO_PULSE")
-        elif ppg_flat or (ecg_flat and not reliable):
-            # ECG 파형이 정상이어도 맥박이 없을 수 있다(무맥성 전기활동). 손가락이 떨어졌을 수도 있어 주의로 둔다
+        elif ecg_chaotic and ppg_flat:
+            # [판단 불가 6] 리듬 없는 ECG 잡음 + 맥박 소실. 심실세동과 움직임 잡음을 구분할 수 없다
+            cannot_judge("CHAOTIC_ECG_NO_PULSE")
+        elif ppg_flat and ecg.reliable:
+            # ECG 파형은 정상인데 맥박만 없다(무맥성 전기활동 또는 손가락 탈락). 주의로 두고 비전에 넘긴다
             raise_to(CAUTION, "NO_PULSE_UNCONFIRMED", ask=True)
+        elif ppg_flat or (ecg_flat and not reliable):
+            # [판단 불가 5] 한 센서만 박동 소실, 다른 센서는 잡음
+            cannot_judge("NO_PULSE_UNCONFIRMED")
         elif self._paused(readings, reliable):
-            # 쓰러지는 순간을 놓치지 않도록, 위험 확정 전이라도 박동이 끊기면 바로 알린다
+            # 쓰러지는 순간을 놓치지 않도록, 위험 확정 전이라도 두 센서 모두 박동이 끊기면 바로 알린다
             raise_to(CAUTION, "HEART_PAUSE", ask=True)
 
-        # 2) 위험 등급 심박: 모델이 위험으로 보거나 직접 잰 bpm이 위험 범위면 위험이다.
+        # [판단 불가 3] 두 센서 모두 깨끗한데 심박수가 10회 넘게 다르다
+        mismatch = (ecg.reliable and ppg.reliable and ecg.hr is not None and ppg.hr is not None
+                    and abs(ecg.hr - ppg.hr) > cfg.hr_mismatch_bpm)
+        if mismatch:
+            cannot_judge("SENSOR_MISMATCH")
+
+        # 2) 위험 등급 심박: 모델이 위험으로 보거나 직접 잰 bpm이 40 이하·131 이상이면 위험 후보다.
         #    깨끗하게 잰 값을 모델이 뒤집으면 안 된다
         use_model = model_label is not None
         use_ppg_model = ppg_label is not None
-        ecg_danger = ecg.reliable and (model_label == DANGER or self._is_extreme(ecg.hr))
-        ppg_danger = ppg.reliable and (ppg_label == DANGER or self._is_extreme(ppg.hr))
+        ecg_danger = ecg.reliable and (model_label == DANGER or self._is_danger_hr(ecg.hr))
+        ppg_danger = ppg.reliable and (ppg_label == DANGER or self._is_danger_hr(ppg.hr))
         votes = int(ecg_danger) + int(ppg_danger)
         contradicted = (ecg.reliable and not ecg_danger) or (ppg.reliable and not ppg_danger)
-        if self._held("danger_hr", votes > 0, now, cfg.extreme_hold_s):
+        danger_hr = False
+        if self._held("danger_hr", votes > 0 and not mismatch, now, cfg.extreme_hold_s,
+                      unknown=not reliable):
             tag = self._danger_tag(ecg, ppg, DANGER in (model_label, ppg_label))
+            single = ecg if ecg_danger else ppg
             if votes == 2 or (ecg_danger and ppg_flat):
+                # [위험 3] 40 이하 또는 131 이상을 두 센서가 5초 이상 확인
                 raise_to(DANGER, tag)
+                danger_hr = True
             elif contradicted:
                 raise_to(CAUTION, "SENSOR_CONFLICT", ask=True)
-            else:
-                raise_to(CAUTION, tag + "_UNCONFIRMED", ask=True)
+            elif (single is ecg and model_label == DANGER) or self._is_extreme(single.hr):
+                # [판단 불가 4] 한 센서만 위험 범위(40 이하·150 이상), 다른 센서는 믿을 수 없음
+                cannot_judge(tag + "_UNCONFIRMED")
+            # 한 센서만 131~149회면 아래 3)에서 주의(HR_HIGH)로 본다
 
         # 3) 주의 등급 심박: 모델 판정과 직접 잰 bpm을 각각 본다
         cv = self._rr_cv(now)
@@ -189,28 +217,32 @@ class BioSignalMonitor:
         # 모델은 50 bpm 이하를 주의로 학습했다. 평소 심박이 낮은 사람의 규칙적인 평소 심박은 이상이 아니다
         if model_caution and self._usual_low_heart_rate(hr, cv):
             model_caution = False
-        hr_low = hr is not None and not self._is_extreme(hr) and hr < self._low_limit()
-        hr_high = hr is not None and not self._is_extreme(hr) and hr > cfg.hr_caution_high
+        # [주의 1] 41~50회 10초, [주의 2] 101~130회 10초 (한 센서만 잰 131~149회 포함)
+        hr_low = hr is not None and hr > cfg.hr_extreme_low and hr <= self._low_limit()
+        hr_high = (hr is not None and not danger_hr
+                   and cfg.hr_caution_high < hr < cfg.hr_extreme_high)
         caution_now = model_caution or hr_low or hr_high
-        if self._held("hr_low", hr_low, now, cfg.caution_hold_s):
+        no_hr = hr is None  # 심박을 못 잰 것은 '정상으로 돌아옴'이 아니다
+        if self._held("hr_low", hr_low, now, cfg.caution_hold_s, unknown=no_hr):
             raise_to(CAUTION, "HR_LOW")
-        if self._held("hr_high", hr_high, now, cfg.caution_hold_s):
+        if self._held("hr_high", hr_high, now, cfg.caution_hold_s, unknown=no_hr):
             raise_to(CAUTION, "HR_HIGH")
-        if self._held("model_caution", model_caution, now, cfg.caution_hold_s):
+        if self._held("model_caution", model_caution, now, cfg.caution_hold_s, unknown=no_hr):
             raise_to(CAUTION, "MODEL_CAUTION")
 
-        # 4) 개인 기준선 대비 상승·하강
+        # 4) [주의 3] 개인 기준선 대비 25회와 30% 중 큰 값 이상 상승·하강이 7초 지속
         hr_delta = None if hr is None or self._baseline is None else hr - self._baseline
         deviated = False
         if hr_delta is not None:
             limit = max(cfg.abrupt_delta_bpm, cfg.abrupt_delta_ratio * self._baseline)
             deviated = abs(hr_delta) >= limit
-        if self._held("abrupt", deviated, now, cfg.abrupt_hold_s):
+        if self._held("abrupt", deviated, now, cfg.abrupt_hold_s, unknown=no_hr):
             raise_to(CAUTION, "HR_RISING" if hr_delta > 0 else "HR_FALLING")
 
         # 5) 불규칙 리듬
         irregular = cv is not None and cv > cfg.irregular_rr_cv and ecg.reliable
-        if self._held("irregular", irregular, now, cfg.irregular_hold_s):
+        if self._held("irregular", irregular, now, cfg.irregular_hold_s,
+                      unknown=cv is None or not ecg.reliable):
             raise_to(CAUTION, "IRREGULAR_RHYTHM")
 
         # 6) 졸음 참고 지표: 약한 근거이므로 등급은 올리지 않는다
@@ -225,7 +257,10 @@ class BioSignalMonitor:
         self._calibrate(hr, now, abnormal=votes > 0)
         self._update_rmssd_baseline(rmssd, dt, frozen=deviated or caution_now or votes > 0 or drowsy_now)
 
-        # 7) 측정 불가 처리. 기준선을 재는 동안에는 정상이라고 표시하지 않는다
+        # 7) 판단 불가 처리. 신호를 믿을 수 없으면 주의로 추측하지 않는다. 위험은 두 센서가 확인한 것이므로 유지한다
+        if untrusted and cand != DANGER:
+            cand = UNAVAILABLE
+        # 기준선을 재는 동안에는 정상이라고 표시하지 않는다
         calibrating = (self._baseline is None and self._first_t is not None
                        and now - self._first_t < cfg.calibration_s)
         if cand == NORMAL and calibrating and not all(c.stale for c in readings):
@@ -252,7 +287,7 @@ class BioSignalMonitor:
             hr_class, hr_conf, hr_source = ppg_label, ppg_conf, "ppg_model"
         else:
             hr_class, hr_conf, hr_source = self._rule_class(hr), None, "rule"
-        if self._is_extreme(hr) and hr_class != DANGER:
+        if self._is_danger_hr(hr) and hr_class != DANGER:
             hr_class, hr_conf, hr_source = DANGER, None, "rule"
         status = BioStatus(
             t=now, level=level, reasons=reasons, needs_second_opinion=second_opinion,
@@ -321,7 +356,7 @@ class BioSignalMonitor:
 
     def _danger_tag(self, ecg, ppg, from_model: bool) -> str:
         """직접 잰 bpm이 위험 범위면 그 이유를 우선한다. 사용자가 이해하기 쉽기 때문이다."""
-        rates = [c.hr for c in (ecg, ppg) if c.reliable and self._is_extreme(c.hr)]
+        rates = [c.hr for c in (ecg, ppg) if c.reliable and self._is_danger_hr(c.hr)]
         if rates:
             return "EXTREME_BRADY" if min(rates) <= self.cfg.hr_extreme_low else "EXTREME_TACHY"
         return "MODEL_DANGER" if from_model else "EXTREME_TACHY"
@@ -342,20 +377,20 @@ class BioSignalMonitor:
     def _rule_class(self, hr: Optional[float]) -> str:
         if hr is None:
             return UNAVAILABLE
-        if self._is_extreme(hr):
+        if self._is_danger_hr(hr):
             return DANGER
-        if hr < self._low_limit() or hr > self.cfg.hr_caution_high:
+        if hr <= self._low_limit() or hr > self.cfg.hr_caution_high:
             return CAUTION
         return NORMAL
 
     def _paused(self, readings: List[ChannelReading], reliable: List[ChannelReading]) -> bool:
-        """접촉이 유지된 센서가 모두 박동을 잃었고, 그중 하나 이상은 신호가 잠잠해졌는가.
+        """ECG·PPG 모두 접촉이 유지된 채 박동을 잃었고, 그중 하나 이상은 신호가 잠잠해졌는가.
 
         잡음이 큰 동안 박동을 못 잡는 것은 정지가 아니다. 실측 기록에서 이 조건이 없으면 오경보가 났다.
-        박동을 잡은 적 없는 센서는 판단에서 뺀다.
+        한 센서만 박동을 잃은 것은 판단 불가 5번이므로 두 센서를 모두 요구한다.
         """
         watched = [c for c in readings if not c.stale and c.contact is not False and c.no_rhythm_s is not None]
-        return (not reliable and any(c.quiet for c in watched)
+        return (not reliable and len(watched) == len(readings) and any(c.quiet for c in watched)
                 and all(c.no_rhythm_s >= self.cfg.pause_s for c in watched))
 
     def _absent(self, c: ChannelReading, require_known_contact: bool) -> bool:
@@ -367,15 +402,32 @@ class BioSignalMonitor:
         return (not c.reliable and c.quiet and c.no_rhythm_s is not None
                 and c.no_rhythm_s >= self.cfg.no_pulse_s)
 
+    def _is_danger_hr(self, hr: Optional[float]) -> bool:
+        """위험 범위: 40 이하 또는 131 이상. 두 센서가 확인해야 위험이 된다."""
+        return hr is not None and (hr <= self.cfg.hr_extreme_low or hr >= self.cfg.hr_danger_high)
+
     def _is_extreme(self, hr: Optional[float]) -> bool:
+        """한 센서만으로 판단 불가가 되는 범위: 40 이하 또는 150 이상."""
         return hr is not None and (hr <= self.cfg.hr_extreme_low or hr >= self.cfg.hr_extreme_high)
 
-    def _held(self, key: str, active: bool, now: float, hold_s: float) -> bool:
-        if not active:
-            self._since.pop(key, None)
-            return False
-        start = self._since.setdefault(key, now)
-        return now - start >= hold_s
+    def _held(self, key: str, active: bool, now: float, hold_s: float, unknown: bool = False) -> bool:
+        """조건이 hold_s 동안 이어졌는가.
+
+        unknown은 조건을 확인할 수 없어 False가 된 경우다(측정 끊김·잡음). 이 상태가
+        gap_tolerance_s 이하면 타이머를 지우지 않고, 다시 확인되면 처음 시작 시각부터 이어서 잰다.
+        측정해서 정상임을 확인한 경우(unknown=False)에는 바로 지운다.
+        """
+        if active:
+            self._gap_since.pop(key, None)
+            start = self._since.setdefault(key, now)
+            return now - start >= hold_s
+        if unknown and key in self._since:
+            gap_start = self._gap_since.setdefault(key, now)
+            if now - gap_start <= self.cfg.gap_tolerance_s:
+                return False
+        self._since.pop(key, None)
+        self._gap_since.pop(key, None)
+        return False
 
     def _fuse_hr(self, reliable: List[ChannelReading]) -> Optional[float]:
         """ECG를 우선하고, ECG를 쓸 수 없을 때만 PPG 심박수를 쓴다."""
@@ -441,12 +493,32 @@ class BioSignalMonitor:
 
         danger는 신뢰할 수 있는 정상 신호가 확인되어야만 해제한다. 측정 불가로는
         내려가지 않는다. 쓰러지며 센서가 떨어져도 경보가 풀리면 안 되기 때문이다.
-        반대로 normal은 측정이 안 되는 순간 바로 내린다. 신호 없이 정상이라고 표시하면 안 된다.
+        반대로 normal과 caution은 측정이 안 되는 순간 바로 판단 불가로 바꾼다(판단 불가 7번).
+        신호 없이 정상이나 주의라고 추측하지 않는다.
+
+        판단 불가가 resume_memory_s 안에 끝나면 직전 등급에서 다시 시작한다. 그래서 주의였다면
+        잡음이 끼었다 돌아와도 곧바로 정상이 되지 않고 clear_hold_s 동안 정상이 확인되어야 해제된다.
         """
-        if _RANK[cand] >= _RANK[self._level] or (cand == UNAVAILABLE and self._level == NORMAL):
-            self._level = cand
+        if cand == UNAVAILABLE:
+            if self._level == DANGER:
+                self._lower_since = None
+                return self._level
+            if self._level != UNAVAILABLE:
+                self._resume_level = self._level
+                self._unavailable_since = now
+            self._level = UNAVAILABLE
             self._lower_since = None
-        elif cand == UNAVAILABLE and self._level == DANGER:
+            return self._level
+
+        if self._level == UNAVAILABLE and self._resume_level is not None:
+            if now - self._unavailable_since <= self.cfg.resume_memory_s:
+                self._level = self._resume_level
+                self._lower_since = None
+            self._resume_level = None
+            self._unavailable_since = None
+
+        if _RANK[cand] >= _RANK[self._level]:
+            self._level = cand
             self._lower_since = None
         else:
             if self._lower_since is None:
