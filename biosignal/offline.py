@@ -11,8 +11,8 @@
 - 파일 전체를 먼저 넣으면 안 된다. 끝에 있는 사건(예: 심정지)이 예열에 들어가 영상 처음부터 위험이 나온다.
 - 앞 3초가 정상 상태라고 가정한다. 비전의 중립 구간 기준선과 같은 가정이다. 처음부터 이상한 상태로 시작하면 그 상태가 기준선이 된다.
 
-    from biosignal.offline import assess_recording
-    statuses = assess_recording("recordings/E4", model_path=..., ppg_encoder_path=..., ppg_head_path=...)
+    from biosignal.offline import RecordingAssessor
+    bio = RecordingAssessor("recordings/E4")   # 영상 프레임마다 bio.at(프레임 시각)
 """
 from __future__ import annotations
 
@@ -84,41 +84,94 @@ def warm_up(monitor: BioSignalMonitor, warm: Signal, start_t: float) -> Optional
     return last
 
 
+_MODELS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
+
+
+def default_model_paths() -> dict:
+    """실시간 프로그램과 같은 기본 가중치(미세조정 버전)."""
+    return dict(model_path=os.path.join(_MODELS, "hr_classifier_ft.pt"),
+                ppg_encoder_path=os.path.join(_MODELS, "papagei_s.pt"),
+                ppg_head_path=os.path.join(_MODELS, "ppg_head_ft.pt"))
+
+
+class RecordingAssessor:
+    """녹화 파일을 영상과 함께 재생하면서 생체신호 모델을 실제로 돌린다.
+
+    비전이 프레임을 처리할 때마다 at(프레임 시각)을 부르면, 그 시각까지의 신호만 모델에 넣고
+    가장 최근 판정을 돌려준다. 그 시각 뒤의 신호는 쓰지 않는다. 판정은 period_s(1초)마다 새로 나온다.
+
+        bio = RecordingAssessor("recordings/E4")      # 기본 가중치, 파일 앞 3초 예열
+        for frame_index, clip_s in frames:             # frames.csv 의 영상 시각
+            status = bio.at(clip_s)                    # 첫 판정(약 1초) 전에는 None
+            level = status.level if status else "unavailable"
+        bio.close()
+    """
+
+    def __init__(self, folder: str, warmup: Optional[str] = "self", cfg: Optional[Config] = None,
+                 models: bool = True, model_path: Optional[str] = None,
+                 ppg_encoder_path: Optional[str] = None, ppg_head_path: Optional[str] = None,
+                 period_s: float = 1.0, log_path: Optional[str] = None):
+        cfg = cfg or Config()
+        paths = default_model_paths() if models and not (model_path or ppg_encoder_path or ppg_head_path) \
+            else dict(model_path=model_path, ppg_encoder_path=ppg_encoder_path, ppg_head_path=ppg_head_path)
+        self._mon = BioSignalMonitor(cfg, **paths)
+        self._t, self._e, self._p = read_recording(folder)
+        if warmup == "self":
+            warm = self_warmup((self._t, self._e, self._p), cfg)
+        elif warmup:
+            warm = read_recording(warmup)
+        else:
+            warm = None
+        if warm is not None:
+            warm_up(self._mon, warm, float(self._t[0]))
+        self._i = 0
+        self._period_s = period_s
+        self._next_update = float(self._t[0]) + period_s
+        self._log = open(log_path, "w", encoding="utf-8") if log_path else None
+        self.latest: Optional[BioStatus] = None
+        self.history: List[BioStatus] = []
+
+    @property
+    def end_t(self) -> float:
+        return float(self._t[-1])
+
+    def at(self, now: float) -> Optional[BioStatus]:
+        """now(영상 시각, 초)까지의 신호를 넣고 가장 최근 판정을 돌려준다. 시각은 앞으로만 간다."""
+        t, e, p = self._t, self._e, self._p
+        while self._i < len(t) and t[self._i] <= now:
+            ti = float(t[self._i])
+            self._mon.push_ecg(ti, float(e[self._i]))
+            self._mon.push_ppg(ti, float(p[self._i]))
+            self._i += 1
+            if ti >= self._next_update:
+                self._next_update += self._period_s
+                self.latest = self._mon.update(ti)
+                self.history.append(self.latest)
+                if self._log:
+                    self._log.write(json.dumps(self.latest.to_dict(), ensure_ascii=False) + "\n")
+        return self.latest
+
+    def close(self) -> None:
+        self._mon.close()
+        if self._log:
+            self._log.close()
+            self._log = None
+
+
 def assess_recording(folder: str, warmup: Optional[str] = "self", cfg: Optional[Config] = None,
                      log_path: Optional[str] = None, model_path: Optional[str] = None,
                      ppg_encoder_path: Optional[str] = None, ppg_head_path: Optional[str] = None,
                      period_s: float = 1.0) -> List[BioStatus]:
-    """측정 폴더를 실시간과 같은 순서로 넣고 period_s 마다 판정한다.
+    """측정 폴더 전체를 한 번에 판정한다 (점검·결과 저장용). RecordingAssessor 를 끝까지 재생한 것과 같다.
 
     warmup: "self" 는 파일 앞 3초 예열, None 은 예열 없음(실시간과 같이 처음 10초 측정),
             그 밖의 문자열은 같은 사람의 정상 측정 폴더 경로로 보고 그 신호 전체로 예열한다.
+    가중치 경로를 주지 않으면 모델 없이 임계값 규칙으로만 판정한다.
     log_path 를 주면 대상 파일 구간의 판정만 JSONL 로 저장한다.
     """
-    cfg = cfg or Config()
-    sig = read_recording(folder)
-    t, e, p = sig
-    mon = BioSignalMonitor(cfg, model_path=model_path, ppg_encoder_path=ppg_encoder_path,
-                           ppg_head_path=ppg_head_path)
-    if warmup == "self":
-        warm = self_warmup(sig, cfg)
-    elif warmup:
-        warm = read_recording(warmup)
-    else:
-        warm = None
-    if warm is not None:
-        warm_up(mon, warm, float(t[0]))
-
-    out: List[BioStatus] = []
-    next_update = float(t[0]) + period_s
-    for ti, ev, pv in zip(t, e, p):
-        mon.push_ecg(float(ti), float(ev))
-        mon.push_ppg(float(ti), float(pv))
-        if ti >= next_update:
-            next_update += period_s
-            out.append(mon.update(float(ti)))
-    mon.close()
-    if log_path:
-        with open(log_path, "w", encoding="utf-8") as f:
-            for st in out:
-                f.write(json.dumps(st.to_dict(), ensure_ascii=False) + "\n")
-    return out
+    bio = RecordingAssessor(folder, warmup=warmup, cfg=cfg, models=False, model_path=model_path,
+                            ppg_encoder_path=ppg_encoder_path, ppg_head_path=ppg_head_path,
+                            period_s=period_s, log_path=log_path)
+    bio.at(bio.end_t)
+    bio.close()
+    return bio.history

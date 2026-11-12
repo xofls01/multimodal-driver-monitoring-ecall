@@ -123,14 +123,29 @@ python tools/replay_recording.py "<측정 폴더>" --model models/hr_classifier.
 녹화 파일만 넣으면 처음 10초를 기준선 측정에 쓰고, 분석 창(최소 6초, 모델 10초)도 비어 있어 15초 안팎의 시연 영상에서는 판정이 너무 늦다.
 실제 차에서는 사건 전부터 측정하고 있으므로, 영상 시작 시점에 기준선과 분석 창이 차 있는 상태를 재현한다. 판정 알고리즘과 10초 측정 규칙은 바꾸지 않는다.
 
-```bash
-python tools/replay_recording.py recordings/E4 --model models/hr_classifier_ft.pt --ppg-encoder models/papagei_s.pt --ppg-head models/ppg_head_ft.pt --out recordings/E4/bio_status.jsonl
-```
+**비전과 합칠 때는 미리 만든 결과 파일 대신 모델을 영상과 함께 돌린다.** 비전이 프레임을 처리할 때마다 그 프레임 시각을 넣으면, 그 시각까지의 신호만으로 판정한 가장 최근 결과가 나온다.
 
 ```python
-from biosignal.offline import assess_recording
-statuses = assess_recording("recordings/E4", model_path="models/hr_classifier_ft.pt",
-                            ppg_encoder_path="models/papagei_s.pt", ppg_head_path="models/ppg_head_ft.pt")
+from biosignal.offline import RecordingAssessor
+
+bio = RecordingAssessor("recordings/E4")        # 기본 가중치(미세조정 버전), 파일 앞 3초 예열
+for frame_index, clip_s in frames:               # frames.csv 의 영상 시각(초)
+    vision = vision_engine.update(frame)
+    status = bio.at(clip_s)                      # 첫 판정(약 1초) 전에는 None
+    bio_level = status.level if status else "unavailable"
+    bio_reasons = status.reasons if status else []
+bio.close()
+```
+
+- `status.level`: `normal`·`caution`·`danger`·`unavailable`. `status.reasons`: 판정 이유. `status.needs_second_opinion`이 `True`면 생체신호만으로는 확실하지 않으니 비전 판단을 따른다.
+- 판정은 1초마다 새로 나오고, 그 사이 프레임에는 직전 판정이 그대로 나온다. 그 시각 뒤의 신호는 쓰지 않는다.
+- 처음 만들 때 가중치를 읽느라 몇 초 걸린다. 그 뒤 프레임당 최대 약 25 ms (E4·D3·TheNewA·N 측정).
+- 시각은 앞으로만 간다. 영상을 처음부터 다시 돌리려면 새로 만든다.
+
+결과를 파일로 확인할 때:
+
+```bash
+python tools/replay_recording.py recordings/E4 --model models/hr_classifier_ft.pt --ppg-encoder models/papagei_s.pt --ppg-head models/ppg_head_ft.pt --out bio_status.jsonl
 ```
 
 - 기본이 파일 앞 3초 예열(`--warmup self`)이다. `--warmup none`은 실시간과 같이 처음 10초를 측정하고, `--warmup <폴더>`는 그 정상 측정 전체로 예열한다.
