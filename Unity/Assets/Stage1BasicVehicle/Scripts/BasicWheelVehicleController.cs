@@ -38,6 +38,7 @@ public class BasicWheelVehicleController : MonoBehaviour
     [Header("Control Mode")]
     public VehicleControlMode controlMode = VehicleControlMode.Manual;
     public CruiseControlController cruiseController;
+    public CautionLaneAssistController cautionLaneAssist;
     public float remoteCommandTimeoutSeconds = 0.75f;
     [Range(0f, 1f)] public float connectionLostBrakeInput = 0.3f;
 
@@ -129,9 +130,14 @@ public class BasicWheelVehicleController : MonoBehaviour
 
     private void FixedUpdate()
     {
-        CurrentSpeedKph = vehicleBody.velocity.magnitude * 3.6f;
+#if UNITY_6000_0_OR_NEWER
+        Vector3 currentVelocity = vehicleBody.linearVelocity;
+#else
+        Vector3 currentVelocity = vehicleBody.velocity;
+#endif
+        CurrentSpeedKph = currentVelocity.magnitude * 3.6f;
         float signedForwardSpeedKph =
-            Vector3.Dot(transform.forward, vehicleBody.velocity) * 3.6f;
+            Vector3.Dot(transform.forward, currentVelocity) * 3.6f;
 
         bool useEmergencyControl = EmergencyOverrideActive;
         bool useRemoteControl = controlMode == VehicleControlMode.Remote;
@@ -145,6 +151,17 @@ public class BasicWheelVehicleController : MonoBehaviour
             : useRemoteControl && remoteCommandFresh
                 ? remoteSteeringInput
                 : useRemoteControl || useCruiseControl ? 0f : steeringInput;
+
+        if (cautionLaneAssist != null)
+        {
+            UnityTcpVehicleBridge bridge = cautionLaneAssist.bridge;
+            bool laneAssistAuthorized = !useEmergencyControl && useRemoteControl
+                && remoteCommandFresh && bridge != null
+                && bridge.CurrentDriverState == "Caution"
+                && bridge.LatestCommand != null && bridge.LatestCommand.can_active;
+            requestedSteering = cautionLaneAssist.FilterSteering(
+                requestedSteering, CurrentSpeedKph, Time.fixedDeltaTime, laneAssistAuthorized);
+        }
 
         CurrentSteeringInput = Mathf.MoveTowards(
             CurrentSteeringInput,
@@ -415,7 +432,11 @@ public class BasicWheelVehicleController : MonoBehaviour
         }
 
         transform.SetPositionAndRotation(initialPosition, initialRotation);
+#if UNITY_6000_0_OR_NEWER
+        vehicleBody.linearVelocity = Vector3.zero;
+#else
         vehicleBody.velocity = Vector3.zero;
+#endif
         vehicleBody.angularVelocity = Vector3.zero;
         CurrentSteeringInput = 0f;
         throttleInput = 0f;

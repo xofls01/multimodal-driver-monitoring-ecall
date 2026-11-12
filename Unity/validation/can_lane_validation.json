@@ -1,0 +1,227 @@
+{
+  "date_local": "2026-11-12",
+  "environment": "Unity 6.3 LTS 6000.3.25f1, macOS Metal, Stage 1 scene",
+  "driver_state": "Caution",
+  "scope": "Real Unity physics in short event windows. Drowsiness is not one continuous 18-second run. An interrupted continuous attempt is excluded.",
+  "acceptance": "Actual displacement >= 0.25m, both steering directions applied, final center error <= 0.15m, final heading error <= 1deg, whole-vehicle clearance > 0.15m.",
+  "handoff_check": "First drowsy window rerun after the handoff refinement; actual release observed at CAN t=7.8s. Other motion/clearance windows use the same measured-yaw stopping/recovery controller before that release-only refinement.",
+  "clearance_definition": "Rotated chassis and wheel envelope to lane marking inner edges; minimum accumulated every FixedUpdate.",
+  "lane_inner_edges_m": [
+    -1.44,
+    2.93
+  ],
+  "vehicle_half_width_m": 1.0,
+  "vehicle_half_length_m": 2.1,
+  "results": [
+    {
+      "scenario": "normal",
+      "state": "Caution",
+      "window": [
+        0.0,
+        6.0
+      ],
+      "samples": 119,
+      "min_clearance_m": 1.1597216129302979,
+      "physics_min_clearance_m": 1.1597216129302979,
+      "max_speed_kph": 63.84010314941406,
+      "assist_frames": 0,
+      "first_assist_can_time_s": null,
+      "x_range": [
+        0.748383104801178,
+        0.7485310435295105
+      ],
+      "peak_center_offset_m": 0.003531038761138916,
+      "first_assist_center_offset_m": null,
+      "final_center_offset_m": 0.0033831000328063965,
+      "final_heading_error_deg": -0.00011510093463584781,
+      "applied_steering_range": [
+        0.0,
+        0.0
+      ],
+      "observed_can_time_range": [
+        0.0,
+        5.8
+      ],
+      "coverage_complete": true,
+      "passed": true,
+      "label": "normal"
+    },
+    {
+      "scenario": "caution",
+      "state": "Caution",
+      "window": [
+        2.0,
+        8.0
+      ],
+      "samples": 62,
+      "min_clearance_m": 0.5866941213607788,
+      "physics_min_clearance_m": 0.585770308971405,
+      "max_speed_kph": 63.760711669921875,
+      "assist_frames": 43,
+      "first_assist_can_time_s": 3.6,
+      "x_range": [
+        0.16849583387374878,
+        0.7485166788101196
+      ],
+      "peak_center_offset_m": 0.5765041708946228,
+      "first_assist_center_offset_m": 0.18932580947875977,
+      "final_center_offset_m": 0.014610469341278076,
+      "final_heading_error_deg": -0.004620670340955257,
+      "applied_steering_range": [
+        -0.0716666653752327,
+        0.07966375350952148
+      ],
+      "activation_can_times": [
+        3.6
+      ],
+      "release_can_times": [
+        7.8
+      ],
+      "observed_can_time_range": [
+        2.0,
+        7.8
+      ],
+      "coverage_complete": true,
+      "passed": true,
+      "departure_and_recovery_verified": true,
+      "label": "caution_first"
+    },
+    {
+      "scenario": "caution",
+      "state": "Caution",
+      "window": [
+        8.0,
+        13.0
+      ],
+      "samples": 50,
+      "min_clearance_m": 0.5502800345420837,
+      "physics_min_clearance_m": 0.5485720038414001,
+      "max_speed_kph": 63.79508590698242,
+      "assist_frames": 38,
+      "first_assist_can_time_s": 9.2,
+      "x_range": [
+        0.1319274604320526,
+        0.7484641075134277
+      ],
+      "peak_center_offset_m": 0.613072544336319,
+      "first_assist_center_offset_m": 0.33959949016571045,
+      "final_center_offset_m": 0.025128543376922607,
+      "final_heading_error_deg": 0.11443743109703064,
+      "applied_steering_range": [
+        -0.03233333304524422,
+        0.0812649354338646
+      ],
+      "observed_can_time_range": [
+        8.0,
+        12.8
+      ],
+      "coverage_complete": true,
+      "passed": true,
+      "departure_and_recovery_verified": true,
+      "label": "caution_second"
+    },
+    {
+      "scenario": "caution",
+      "state": "Caution",
+      "window": [
+        13.0,
+        18.0
+      ],
+      "samples": 99,
+      "min_clearance_m": 0.5398843884468079,
+      "physics_min_clearance_m": 0.5398843884468079,
+      "max_speed_kph": 63.835426330566406,
+      "assist_frames": 75,
+      "first_assist_can_time_s": 14.2,
+      "x_range": [
+        0.12361795455217361,
+        0.7484521269798279
+      ],
+      "peak_center_offset_m": 0.621382050216198,
+      "first_assist_center_offset_m": 0.3470400869846344,
+      "final_center_offset_m": 0.026719391345977783,
+      "final_heading_error_deg": 0.09319496154785156,
+      "applied_steering_range": [
+        -0.03233333304524422,
+        0.08116740733385086
+      ],
+      "observed_can_time_range": [
+        13.0,
+        17.8
+      ],
+      "coverage_complete": true,
+      "passed": true,
+      "departure_and_recovery_verified": true,
+      "label": "caution_third"
+    },
+    {
+      "scenario": "danger",
+      "state": "Caution",
+      "window": [
+        7.0,
+        13.0
+      ],
+      "samples": 119,
+      "min_clearance_m": 0.5463659763336182,
+      "physics_min_clearance_m": 0.545142650604248,
+      "max_speed_kph": 70.6222152709961,
+      "assist_frames": 68,
+      "first_assist_can_time_s": 8.4,
+      "x_range": [
+        0.7445586323738098,
+        1.3417863845825195
+      ],
+      "peak_center_offset_m": 0.596786379814148,
+      "first_assist_center_offset_m": 0.13073968887329102,
+      "final_center_offset_m": 0.0004413723945617676,
+      "final_heading_error_deg": -0.081298828125,
+      "applied_steering_range": [
+        -0.06645745784044266,
+        0.09333333373069763
+      ],
+      "observed_can_time_range": [
+        7.0,
+        12.8
+      ],
+      "coverage_complete": true,
+      "passed": true,
+      "departure_and_recovery_verified": true,
+      "label": "danger"
+    },
+    {
+      "scenario": "distraction",
+      "state": "Caution",
+      "window": [
+        4.0,
+        10.0
+      ],
+      "samples": 119,
+      "min_clearance_m": 0.371970534324646,
+      "physics_min_clearance_m": 0.371970534324646,
+      "max_speed_kph": 63.056556701660156,
+      "assist_frames": 72,
+      "first_assist_can_time_s": 6.4,
+      "x_range": [
+        0.7484743595123291,
+        1.5303881168365479
+      ],
+      "peak_center_offset_m": 0.7853881120681763,
+      "first_assist_center_offset_m": 0.4995555877685547,
+      "final_center_offset_m": 0.03840923309326172,
+      "final_heading_error_deg": -0.127899169921875,
+      "applied_steering_range": [
+        -0.09321524202823639,
+        0.02666666731238365
+      ],
+      "observed_can_time_range": [
+        4.0,
+        9.8
+      ],
+      "coverage_complete": true,
+      "passed": true,
+      "departure_and_recovery_verified": true,
+      "label": "distraction"
+    }
+  ],
+  "all_passed": true
+}

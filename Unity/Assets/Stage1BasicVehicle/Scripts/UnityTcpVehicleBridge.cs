@@ -38,6 +38,16 @@ public class VehicleStatePacket
     public bool ecall;
     public string driver_state;
     public string emergency_phase;
+    public bool lane_geometry_ready;
+    public bool lane_assist_active;
+    public bool lane_assist_authorized;
+    public float lane_left_boundary_m;
+    public float lane_right_boundary_m;
+    public float lane_clearance_m;
+    public float lane_min_clearance_m;
+    public float lane_predicted_clearance_m;
+    public float lane_applied_steering;
+    public string lane_assist_reason;
 }
 
 [Serializable]
@@ -58,6 +68,12 @@ public class VehicleControlPacket
     public float can_time_s;
     public bool can_anomaly;
     public int can_risk_score;
+    public bool steer_anomaly;
+    public bool accel_anomaly;
+    public bool steer_correction_active;
+    public bool accel_limit_active;
+    public string can_detect_reason;
+    public string can_release_reason;
     public float can_steering;
     public float can_throttle;
     public float can_brake;
@@ -101,6 +117,14 @@ public class UnityTcpVehicleBridge : MonoBehaviour
             emergencyController = vehicle.GetComponent<EmergencyPullOverController>();
         }
 
+        if (vehicle != null)
+        {
+            CautionLaneAssistController assist = vehicle.GetComponent<CautionLaneAssistController>();
+            if (assist == null) assist = vehicle.gameObject.AddComponent<CautionLaneAssistController>();
+            assist.bridge = this;
+            vehicle.cautionLaneAssist = assist;
+        }
+
         Application.runInBackground = true;
         running = true;
         networkThread = new Thread(ConnectionLoop)
@@ -131,6 +155,7 @@ public class UnityTcpVehicleBridge : MonoBehaviour
 
     private string BuildVehicleStateJson()
     {
+        CautionLaneAssistController assist = vehicle.cautionLaneAssist;
         VehicleStatePacket packet = new VehicleStatePacket
         {
             sequence = stateSequence++,
@@ -148,7 +173,17 @@ public class UnityTcpVehicleBridge : MonoBehaviour
             driver_state = CurrentDriverState,
             emergency_phase = emergencyController == null
                 ? "Unavailable"
-                : emergencyController.Phase.ToString()
+                : emergencyController.Phase.ToString(),
+            lane_geometry_ready = assist != null && assist.GeometryReady,
+            lane_assist_active = assist != null && assist.IsActive,
+            lane_assist_authorized = assist != null && assist.IsAuthorized,
+            lane_left_boundary_m = assist == null ? 0f : assist.LeftBoundary,
+            lane_right_boundary_m = assist == null ? 0f : assist.RightBoundary,
+            lane_clearance_m = assist == null ? 0f : assist.CurrentClearance,
+            lane_min_clearance_m = assist == null ? 0f : assist.MinimumClearance,
+            lane_predicted_clearance_m = assist == null ? 0f : assist.PredictedClearance,
+            lane_applied_steering = assist == null ? 0f : assist.AppliedSteering,
+            lane_assist_reason = assist == null ? "unavailable" : assist.Reason
         };
 
         return JsonUtility.ToJson(packet);
@@ -176,6 +211,13 @@ public class UnityTcpVehicleBridge : MonoBehaviour
                 continue;
             }
 
+            if (LatestCommand != null && command.can_active && vehicle != null
+                && vehicle.cautionLaneAssist != null
+                && (!LatestCommand.can_active || command.can_scenario != LatestCommand.can_scenario
+                    || command.can_time_s < LatestCommand.can_time_s))
+            {
+                vehicle.cautionLaneAssist.ResetForScenario();
+            }
             LatestCommand = command;
 
             if (!string.IsNullOrWhiteSpace(command.driver_state))
@@ -237,6 +279,8 @@ public class UnityTcpVehicleBridge : MonoBehaviour
 
         if (requestedMode == "remote")
         {
+            // throttle/steering are the applied commands. Raw CAN is carried only
+            // in can_throttle/can_steering for diagnostics, never fed back here.
             vehicle.SetRemoteControl(
                 command.throttle,
                 command.brake,

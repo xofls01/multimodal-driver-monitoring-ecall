@@ -10,11 +10,11 @@
 - 밝은 웜 화이트 차체와 전면 다크/후면 레드 램프 베이스
 - 램프 베이스 위 전·후방 좌우 주황색 비상등 4개의 실시간 점멸 표시
 - Danger 진입 시 비상 정차 상태 머신, 비상 UI, 비상등 점멸, e-Call 상태
-- 5Hz 가상 CAN CSV 재생, 1초 창 이상 탐지, 선택적 CAN 단독 Danger 데모
+- 5Hz 가상 CAN CSV 재생과 차량 조작 이상 감시 (운전자 상태 분류와는 분리)
 
 ## 처음 적용하는 순서
 
-1. 이 폴더가 Unity 프로젝트의 `Assets/Stage1BasicVehicle` 아래에 있는지 확인합니다.
+1. 저장소의 `Unity/Assets/Stage1BasicVehicle` 소스가 실제 Unity 프로젝트의 `Assets/Stage1BasicVehicle`에 반영됐는지 확인합니다. 저장소의 `Unity` 폴더 자체는 Unity 프로젝트가 아닙니다. 현재 시연용 에디터는 별도의 `/Users/jihoo/My project`를 열고 있으므로 두 위치의 파일이 자동으로 동기화되지는 않습니다.
 2. 스크립트 컴파일이 끝나면 `Tools > Emergency Driving Demo > Create Stage 1 Scene`을 실행합니다.
 3. 생성된 `Assets/Stage1BasicVehicle/Scenes/BasicDrivingStage1.unity`를 엽니다.
 4. Play를 누릅니다. TCP 연결이 없어도 차량이 자동으로 출발합니다.
@@ -99,40 +99,69 @@ quit
 
 ## CAN CSV 재생 및 이상 거동 판단
 
-`Unity/data/can_normal_60kmh_15s.csv`, `Unity/data/can_caution_drowsy_drift_15s.csv`, `Unity/data/can_danger_steer_accel_15s.csv`, `Unity/data/can_danger_steer_accel_pulse_15s.csv`는 실제 차량 CAN/DBC가 아닌 가상 통합 시험 데이터입니다. Python은 재생 시작 시 CSV를 한 번 읽고 `time_s`에 맞춰 5Hz로 적용합니다. 기존 NDJSON은 20Hz를 유지하며 그 사이에는 마지막 CAN 입력을 반복 전송합니다.
+CAN 시연용 CSV는 아래 네 개입니다. 실제 차량 CAN/DBC 데이터가 아니라 시연 상황을 가정해 생성한 값입니다. `ground_truth_state`와 `ground_truth_event`는 시나리오의 설정과 검증용 정답이며 CAN으로 심정지·졸음·전방주시 태만의 원인을 판별했다는 의미가 아닙니다.
+
+| 명령 | CSV | 전개 |
+|---|---|---|
+| `can normal` | `can_normal_60kmh_15s.csv` | 60 km/h 직선 정속주행 |
+| `can danger` | `can_danger_steer_accel_15s.csv` | 심정지 시연: 7초부터 조향이 작게 흔들리고, 8초에 급가속과 큰 조향 편향 시작 |
+| `can caution` | `can_caution_drowsy_drift_15s.csv` | 기존 파일명을 유지한 18초 졸음 시연: 3~5초, 8~11초, 13~16초에 좌측으로 치우치고 깬 뒤 원래 주행 위치로 복귀 |
+| `can distraction` | `can_distraction_held_steer_15s.csv` | 바닥 물건을 집는 전방주시 태만 시연: 5초 정상주행 뒤 조향 편향 유지, 늦은 복귀 |
+
+Python은 재생 시작 시 CSV를 한 번 읽고 `time_s`에 맞춰 5Hz로 적용합니다. 기존 NDJSON은 20Hz를 유지하며 그 사이에는 마지막 CAN 입력을 반복 전송합니다.
 
 ```bash
-python3 Unity/python/vehicle_tcp_server.py --can-demo-mode
+python3 Unity/python/vehicle_tcp_server.py
 ```
 
 Unity 차량이 Cruise로 약 60km/h에 도달한 뒤 Python 콘솔에서 실행합니다.
 
 ```text
 can normal     # 정상 CSV 15초 재생
-can caution    # 두 번의 완만한 졸음 조향·복귀 CSV 15초 재생
-can danger     # 급조향·급가속 위험 CSV 15초 재생
-can status     # 재생 시간, 위험점수, 활성 조건, Unity 비상 단계
+can caution    # 졸음·복귀 3회 CSV 18초 재생
+can distraction # 전방주시 태만 시연 CSV 15초 재생
+can danger     # 심정지 상황의 급가속·급조향 시연 CSV 15초 재생
+can status     # 재생 시간, CAN 이상 감시 상태, Unity 비상 단계
 can stop       # 재생 중지 및 Cruise 복귀 (Danger는 잠금 유지)
 can restart    # 이미 로드한 CSV를 처음부터 재생
-can demo off   # 일반 모드: CAN 결과만 저장, 최종 Danger 미발행
-can demo on    # CAN 단독 데모: 이상 확정 시 publish_prediction(..., "Danger")
-can end hold   # 자연 종료 후 마지막 CAN 입력 유지
-can end normal # 자연 종료 후 Cruise 복귀 (기본값)
+state caution  # 외부 분류 결과를 Caution으로 입력해 보정 시연
+state danger   # 기존 비상 정차 시연
 ```
 
-기본 `can danger`는 급격히 좌우로 바뀌는 조향과 급가속을 함께 담은 `can_danger_steer_accel_pulse_15s.csv`를 재생합니다. 이전의 작은 조향 시나리오를 쓰려면 실행 시 `--can-danger-csv Unity/data/can_danger_steer_accel_15s.csv`를 지정합니다. 경로는 `--can-normal-csv`, `--can-caution-csv`, `--can-danger-csv`로 바꿀 수 있습니다. `--can-max-steering-angle` 기본값 30도는 Unity 차량의 `maxSteeringAngle`과 맞춰야 합니다. 시작 시 `--can-end-behavior hold|normal`도 지정할 수 있습니다.
+기본 CSV 경로는 `--can-normal-csv`, `--can-caution-csv`, `--can-distraction-csv`, `--can-danger-csv`로 바꿀 수 있습니다. `--can-max-steering-angle` 기본값 30도는 Unity 차량의 `maxSteeringAngle`과 맞춰야 합니다. CSV를 다시 생성하려면 `python3 Unity/python/generate_can_demo_csvs.py`를 실행합니다. 기준 정상주행 CSV에서 나머지 세 파일을 생성하며, 졸음 CSV만 18초로 확장합니다.
 
-`can caution`은 완만한 조향 움직임을 재생합니다. CSV의 `ground_truth_state=Caution`은 검증용 정답으로만 사용하며 Unity 경고 상태를 직접 바꾸지 않습니다. 경고 UI와 소리를 확인하려면 모델이 Caution을 보내거나 콘솔에서 `state caution`을 따로 입력합니다.
+졸음 CSV의 Caution 구간은 실제로 조는 시간(3~5초, 8~11초, 13~16초)입니다. 깬 뒤에는 조향을 중립으로만 놓지 않고 반대 조향으로 원래 횡위치에 복귀합니다. 복귀 완료 시점은 각각 7.8초, 12.8초, 17.8초입니다. 이 복귀 경로는 60km/h와 현재 차량 조향 설정을 사용해 계산했으므로 Unity 물리 주행에서의 실제 복귀 오차는 별도로 확인해야 합니다.
+CSV를 수정한 뒤에는 `can caution`을 다시 입력해야 파일을 새로 읽습니다. `can restart`는 이전에 메모리에 읽어둔 내용을 재생합니다.
 
-`normal` 종료는 CAN 제어를 Cruise로 돌리고, 데모 모드에서 Danger가 미확정이면 운전자 상태도 Normal로 돌립니다. 일반 모드에서는 외부에서 정한 운전자 상태를 바꾸지 않습니다. Danger가 확정된 경우에는 `hold` 설정과 관계없이 CAN 제어 입력을 계속 차단합니다.
+CAN은 원본 조향·페달·종가속도의 차량 조작 이상만 감시합니다. 네 CSV의 `ground_truth_*`는 판단에 사용하지 않고 Unity 경고·비상 상태도 직접 바꾸지 않습니다. Normal은 이상 기록만, Caution은 경고 UI·소리와 조향/가속 보정, Danger는 기존 비상 정차를 수행합니다. 외부 모델 대신 콘솔 `state caution`/`state danger`로 상태를 지정할 수 있습니다. 과거의 `--can-demo-mode` 옵션과 `can demo on|off` 명령은 없습니다.
 
-CAN 입력은 조향각 ÷ 최대 조향각, 가속·브레이크 페달 % ÷ 100으로 정규화한 뒤 Remote 입력으로 보냅니다. 위치·속도 Transform을 덮어쓰지 않습니다. CSV 속도는 제어 목표가 아니라 Unity의 실제 `speed_kph`와 비교하는 검증값이므로, 물리·토크 차이 때문에 CSV 속도가 그대로 재현된다고 보장하지 않습니다.
+재생 완료·중지·TCP 단절 때 CAN 입력을 해제하고 Cruise로 복귀합니다. 외부에서 정한 운전자 상태는 바꾸지 않습니다. Danger가 확정되면 CAN 명령을 차단하고 기존 비상 정차가 제어권을 가집니다.
 
-이상 판단기는 최근 5개 샘플에서 급조향, 0.5초 내 급가속 페달, 큰 yaw rate, 무제동 속도 증가, 좌우 바퀴 속도 차이를 각각 1점으로 계산합니다. 2점 이상이 0.4초 지속되면 `can_anomaly=true`로 확정합니다. 임계값은 `can_anomaly.py`의 `CanAnomalyConfig`에서 조정합니다. `ground_truth_*`는 탐지 입력에서 제외하며 확정 시각과의 비교에만 사용합니다. 일반 모드는 CAN 결과만 공유하고 최종 운전자 상태는 바꾸지 않습니다. 생체신호·카메라가 연결되면 `can_adapter.py`의 `FinalStateRouter`에서 CAN 결과와 융합하여 기존 `publish_prediction(shared, label)`을 호출하면 됩니다.
+CAN 조향은 조향각 ÷ 최대 조향각으로 정규화해 Remote 입력으로 보냅니다. 정상 주행 구간은 Unity가 보고한 실제 `speed_kph`와 CSV의 목표 속도(기본 60km/h)를 비교해 기존 Cruise와 같은 P 제어 값으로 가속·제동합니다. 따라서 CSV의 약 22% 기본 페달 값을 계속 적용해 가속하지 않습니다. 초기 페달 값보다 20%p 이상 급증하거나 브레이크가 입력된 구간은 CSV 페달을 그대로 적용해 `can danger`의 8초 이후 급가속을 유지합니다. `can_throttle`과 `can_brake`에는 제어에 적용한 값과 별도로 CSV 원본 페달 값이 남습니다. Unity 속도 보고가 아직 없으면 정속 구간은 가속·제동을 요청하지 않습니다. 위치·속도 Transform은 덮어쓰지 않으며, 실제 속도와 차선 이탈 폭은 Unity 주행에서 확인해야 합니다.
+
+`can_anomaly.py`는 Unity와 같은 속도별 앞바퀴 조향 축소율, 축간거리 2.7m를 사용해 `v² tan(delta)/L`의 절댓값을 계산합니다. CSV 조향값은 핸들각이 아니라 저속 기준 앞바퀴 조향 명령으로 생성되었으므로 조향비 기본값은 1입니다. 5도/초 이상 변화와 예상 횡가속도 2m/s² 이상이 함께 발생하거나, 6m/s² 이상이 0.4초 지속되면 조향 이상을 확정합니다. 페달 증가 80%p/초와 원본 종가속도 0.05g 이상이 함께 발생한 뒤 높은 페달·종가속도가 0.4초 유지되면 가속 이상을 확정합니다. 각 채널은 원본 입력이 별도 정상 범위로 돌아와 1초 지속되어야 해제됩니다. 이 수치는 시뮬레이터 초기 설정이며 실제 차량 안전 기준이 아닙니다.
+
+Caution의 CAN 조향은 Unity `CautionLaneAssistController`가 물리 프레임마다 보정합니다. Bridge가 기존 Scene의 차량에도 컴포넌트를 자동으로 추가하므로 Scene을 다시 만들 필요가 없습니다. 실제 왼쪽 `LaneDash`와 오른쪽 `ShoulderBoundary`의 안쪽 경계, 차체 크기, 바퀴 바깥쪽 폭을 읽고 차체가 돌아간 경우 앞뒤 모서리까지 포함합니다. 현재 Scene의 경계는 X=-1.44~2.93m, 차량의 보수적 반폭은 1.0m입니다.
+
+평상시에는 CAN 조향을 그대로 적용해 실제 편향이 발생하게 합니다. 바깥쪽으로 이동하면서 중앙 오차가 0.45m를 넘거나, 남은 차선 여유가 현재 횡이동을 멈추는 데 필요한 거리+0.25m보다 작아지면 복귀를 시작합니다. 필요한 거리는 실제 횡속도뿐 아니라 차체 회전속도, 현재 전진 속도, 조향 반응 지연 0.35초를 반영합니다. CAN 조향만으로 계산한 1.1초 예상 경로는 진단값이며, 그것만으로 차를 미리 중앙에 묶어두지 않습니다. CAN 이상 분류 결과는 그대로 유지합니다.
+
+복귀 중에는 중앙 오차와 횡속도로 반대 조향을 계산하고, 중앙에 가까워지면 다시 조향을 풀어 전방을 향하게 합니다. 중앙·횡속도·방향이 안정된 상태가 1초 지속되고 원본 조향이 중립 근처(기준 조향각 ±0.45도)에서 0.1초 유지되면 제어권을 반환합니다. 물리적 복귀와 원본 입력 복귀의 타이머를 분리해 다음 졸음까지 계속 개입하지 않도록 했습니다. 조향 최대 입력은 ±0.14, 변화율은 초당 0.8, 횡가속도 목표 제한은 3.5m/s²이며 모두 컴포넌트 설정입니다. Stage 1의 알려진 직선 도로를 사용하는 제어이며 영상 차선 인식이나 경로 계획은 추가하지 않았습니다.
+
+Unity가 `lane_geometry_ready=true`를 보고하면 Python은 원본 조향 명령을 전달해 중복 보정을 피하고, 실제 적용 조향은 Unity `vehicle_state.steering`에 남습니다. 이전 Unity 스크립트에는 기존 Python 위치·방향 보정만 적용되므로 관련 Unity 스크립트 3개도 동기화해야 합니다. 가속 이상에서는 Unity 실제 속도를 재생 시작 목표 속도(기본 60km/h)와 비교해 가속을 해제하거나 제동합니다. 원본 진단값은 `can_steering`/`can_throttle`/`can_brake`에 남으며 감지 입력으로 Unity 보정값을 사용하지 않습니다. 운전자 최종 상태는 계속 `publish_prediction(shared, label)`로 연결합니다.
 
 오프라인 검증: `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s Unity/python -p 'test_can_integration.py'`
 
-Danger 재시험은 `can stop`, `state normal`, Unity `R`, `can restart` 순서로 진행합니다. 정차 여부와 실제 약 60km/h 주행은 Unity Play에서 별도로 확인해야 합니다.
+외부 상태 입력으로 Danger를 시험했다면 `can stop`, `state normal`, Unity `R`, `can restart` 순서로 다시 시험합니다.
+
+실제 Unity 검증 결과는 `validation/can_lane_validation.json`, 첫 졸음의 위치·조향 기록은 `validation/can_lane_recovery.png`에 저장했습니다. 검증은 차선 안에 머무르는 것과 함께 실제 0.25m 이상 편향, 양방향 조향, 최종 중앙 오차 0.15m 이하를 요구합니다. 조향을 고정한 채로는 검증을 통과할 수 없습니다.
+
+2026-11-12 Unity 6.3 LTS의 Caution 시험에서 졸음은 0.58~0.62m, 급조향은 0.60m, 전방주시 태만은 0.79m 편향된 뒤 중앙으로 복귀했습니다. 최종 중앙 오차는 모두 4cm 이내였고, 차량 외곽의 최소 차선 여유는 각각 약 0.54m, 0.55m, 0.37m였습니다. 첫 졸음은 7.8초에 개입이 해제된 것도 추가 확인했습니다. 정상에서는 조향 개입이 없었습니다. 발열 제한 때문에 졸음 18초는 구간별로 실행했으며, 중간 연결이 끊긴 연속 실행 시도는 통과 기록에 포함하지 않았습니다.
+
+실제 Unity 측정을 다시 하려면 Python 서버를 끈 상태에서 다음 명령을 실행하고 Unity Play를 누릅니다. `RESULT`가 출력되면 Play를 종료합니다. 이 검증기는 구간 완료와 차선 여유 0.15m 초과를 모두 확인하며 실패하면 종료 코드 1을 반환합니다.
+
+```bash
+python3 Unity/python/verify_can_lane.py caution --start 2 --end 8 --output /tmp/can-lane-check.json
+```
 
 ## 기능별 시험 절차와 예상 결과
 

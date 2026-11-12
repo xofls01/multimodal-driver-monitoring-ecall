@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from can_adapter import CanAdapter, CanPlaybackConfig
-from can_anomaly import CanAnomalyConfig, CanDecision
+from can_anomaly import CanDecision
 from can_scenario import CanScenarioPlayer, CanSignals
 
 
@@ -39,6 +39,12 @@ class ControlCommand:
     can_time_s: float = 0.0
     can_anomaly: bool = False
     can_risk_score: int = 0
+    steer_anomaly: bool = False
+    accel_anomaly: bool = False
+    steer_correction_active: bool = False
+    accel_limit_active: bool = False
+    can_detect_reason: str = ""
+    can_release_reason: str = ""
     can_steering: float = 0.0
     can_throttle: float = 0.0
     can_brake: float = 0.0
@@ -78,6 +84,8 @@ class SharedData:
             self.command.clamp()
             if self.command.driver_state == "Danger":
                 self.can_control_locked = True
+                self.command.steer_correction_active = False
+                self.command.accel_limit_active = False
                 if self.command.can_active:
                     self.command.throttle = 0.0
                     self.command.brake = 0.0
@@ -94,6 +102,8 @@ class SharedData:
         self.update_command(driver_state=state)
         if state == "Normal":
             with self.lock:
+                self.command.steer_correction_active = False
+                self.command.accel_limit_active = False
                 if self.can_control_locked and not self.command.can_active:
                     self.command.control_mode = "cruise"
                     self.command.remote_enabled = False
@@ -135,6 +145,12 @@ class SharedData:
             self.command.can_time_s = 0.0
             self.command.can_anomaly = False
             self.command.can_risk_score = 0
+            self.command.steer_anomaly = False
+            self.command.accel_anomaly = False
+            self.command.steer_correction_active = False
+            self.command.accel_limit_active = False
+            self.command.can_detect_reason = ""
+            self.command.can_release_reason = ""
             self.command.control_mode = "remote"
             self.command.remote_enabled = True
             self.command.throttle = 0.0
@@ -146,18 +162,36 @@ class SharedData:
     def apply_can_sample(
         self, signals: CanSignals, decision: CanDecision,
         steering: float, throttle: float, brake: float,
+        *, raw_steering: float, raw_throttle: float, raw_brake: float,
+        steer_correction: bool, accel_limit: bool,
+        unrestricted_steering: float, unrestricted_throttle: float,
     ) -> bool:
         with self.lock:
+            if not self.command.can_active:
+                return False
+            if self.command.driver_state != "Caution":
+                # State may have changed since the adapter took its snapshot.
+                steer_correction = accel_limit = False
+                steering, throttle = unrestricted_steering, unrestricted_throttle
             self.latest_can_state = signals
             self.can_decision = decision
             self.command.can_time_s = signals.time_s
             self.command.can_anomaly = decision.can_anomaly
             self.command.can_risk_score = decision.can_risk_score
-            self.command.can_steering = steering
-            self.command.can_throttle = throttle
-            self.command.can_brake = brake
+            self.command.steer_anomaly = decision.steer_anomaly
+            self.command.accel_anomaly = decision.accel_anomaly
+            self.command.steer_correction_active = (
+                steer_correction and not self.can_control_locked and self.command.can_active)
+            self.command.accel_limit_active = (
+                accel_limit and not self.can_control_locked and self.command.can_active)
+            self.command.can_detect_reason = ",".join(decision.active_conditions)
+            self.command.can_release_reason = ",".join(filter(None, (
+                decision.steer_release_reason, decision.accel_release_reason)))
+            self.command.can_steering = raw_steering
+            self.command.can_throttle = raw_throttle
+            self.command.can_brake = raw_brake
             self.command.can_target_speed_kph = signals.vehicle_speed_kph
-            if not self.command.can_active or self.can_control_locked:
+            if self.can_control_locked:
                 return False
             self.command.control_mode = "remote"
             self.command.remote_enabled = True
@@ -171,6 +205,12 @@ class SharedData:
     def finish_can_playback(self, release_control: bool) -> None:
         with self.lock:
             self.command.can_active = False
+            self.command.can_anomaly = False
+            self.command.can_risk_score = 0
+            self.command.steer_anomaly = False
+            self.command.accel_anomaly = False
+            self.command.steer_correction_active = False
+            self.command.accel_limit_active = False
             if release_control or self.can_control_locked:
                 self.command.throttle = 0.0
                 self.command.brake = 0.0
@@ -180,6 +220,26 @@ class SharedData:
                     self.command.remote_enabled = False
                     self.command.hazard = False
                     self.command.ecall = False
+
+    def on_unity_disconnect(self) -> None:
+        """Discard stale feedback and CAN control before a later reconnection."""
+        with self.lock:
+            self.latest_state = None
+            if not self.command.can_active:
+                return
+            self.command.can_active = False
+            self.command.can_anomaly = False
+            self.command.can_risk_score = 0
+            self.command.steer_anomaly = False
+            self.command.accel_anomaly = False
+            self.command.steer_correction_active = False
+            self.command.accel_limit_active = False
+            self.command.throttle = 0.0
+            self.command.brake = 0.0
+            self.command.steering = 0.0
+            if not self.can_control_locked:
+                self.command.control_mode = "cruise"
+                self.command.remote_enabled = False
 
 
 def publish_prediction(shared: SharedData, predicted_label: str) -> None:
@@ -333,6 +393,7 @@ def handle_unity_client(
 
     finally:
         shared.connected_address = None
+        shared.on_unity_disconnect()
         connection.close()
         print("[DISCONNECTED] Unity 연결 종료, 재접속 대기 중")
 
@@ -372,7 +433,12 @@ def print_status(shared: SharedData) -> None:
         f"driver_state={command.driver_state} "
         f"can_active={command.can_active} can_scenario={command.can_scenario} "
         f"can_time_s={command.can_time_s:.1f} can_anomaly={command.can_anomaly} "
-        f"can_risk_score={command.can_risk_score} can_locked={shared.can_control_locked}"
+        f"steer_anomaly={command.steer_anomaly} accel_anomaly={command.accel_anomaly} "
+        f"steer_correction={command.steer_correction_active} "
+        f"accel_limit={command.accel_limit_active} "
+        f"reason={command.can_detect_reason or '-'} "
+        f"release={command.can_release_reason or '-'} "
+        f"can_locked={shared.can_control_locked}"
     )
 
     if state is None:
@@ -433,12 +499,10 @@ def print_help() -> None:
   scenario danger                 Normal 10초 후 Danger 유지
   scenario caution                Normal 5초, Caution 8초, Normal
   scenario stop                   진행 중인 상태 시나리오 중단
-  can normal|caution|danger       CAN CSV 재생 시작
+  can normal|caution|distraction|danger  CAN CSV 재생 시작
   can stop                        CAN 재생 중지, 정속주행 복귀
   can restart                     로드된 CAN 시나리오 처음부터 재생
-  can status                      CAN 재생 시간과 판단 결과
-  can demo on|off                 CAN 단독 Danger 데모 모드
-  can end normal|hold             종료 후 정속주행 복귀/마지막 입력 유지
+  can status                      CAN 재생 시간과 Unity 비상 단계
   demo                            기본 가속·조향·정차 시나리오
   status                          최근 차량 상태와 명령 확인
   help                            명령어 표시
@@ -552,19 +616,9 @@ def console_loop(
             elif command == "can" and len(parts) == 2 and parts[1] == "status":
                 name, elapsed, running = can_player.status()
                 _, unity_state = shared.snapshot()
-                decision = shared.can_decision
                 print(f"[CAN] scenario={name} elapsed={elapsed:.1f}s running={running} "
-                      f"demo_mode={can_adapter.config.demo_mode} "
-                      f"risk={None if decision is None else decision.can_risk_score} "
-                      f"conditions={None if decision is None else decision.active_conditions} "
-                      f"anomaly={None if decision is None else decision.can_anomaly} "
+                      "vehicle-anomaly-monitor=on "
                       f"Unity emergency={None if unity_state is None else unity_state.get('emergency_phase')}")
-            elif command == "can" and len(parts) == 3 and parts[1] == "demo" and parts[2] in {"on", "off"}:
-                can_adapter.config.demo_mode = parts[2] == "on"
-                print(f"[CAN] demo_mode={can_adapter.config.demo_mode}")
-            elif command == "can" and len(parts) == 3 and parts[1] == "end" and parts[2] in {"normal", "hold"}:
-                can_adapter.config.end_behavior = parts[2]
-                print(f"[CAN] end_behavior={parts[2]}")
             elif command == "demo":
                 run_demo(shared)
             elif command == "status":
@@ -589,9 +643,8 @@ def parse_args() -> argparse.Namespace:
     data_dir = Path(__file__).resolve().parents[1] / "data"
     parser.add_argument("--can-normal-csv", type=Path, default=data_dir / "can_normal_60kmh_15s.csv")
     parser.add_argument("--can-caution-csv", type=Path, default=data_dir / "can_caution_drowsy_drift_15s.csv")
-    parser.add_argument("--can-danger-csv", type=Path, default=data_dir / "can_danger_steer_accel_pulse_15s.csv")
-    parser.add_argument("--can-demo-mode", action="store_true")
-    parser.add_argument("--can-end-behavior", choices=("normal", "hold"), default="normal")
+    parser.add_argument("--can-distraction-csv", type=Path, default=data_dir / "can_distraction_held_steer_15s.csv")
+    parser.add_argument("--can-danger-csv", type=Path, default=data_dir / "can_danger_steer_accel_15s.csv")
     parser.add_argument("--can-max-steering-angle", type=float, default=30.0)
     return parser.parse_args()
 
@@ -603,13 +656,10 @@ def main() -> None:
     shared = SharedData()
     scenarios = ScenarioRunner(shared)
     can_adapter = CanAdapter(
-        shared, publish_prediction,
+        shared,
         CanPlaybackConfig(
-            demo_mode=args.can_demo_mode,
-            end_behavior=args.can_end_behavior,
             max_steering_angle_deg=args.can_max_steering_angle,
         ),
-        CanAnomalyConfig(),
     )
     can_player = CanScenarioPlayer(
         can_adapter.on_start, can_adapter.on_sample, can_adapter.on_finish,
@@ -617,6 +667,7 @@ def main() -> None:
     can_paths = {
         "normal": args.can_normal_csv,
         "caution": args.can_caution_csv,
+        "distraction": args.can_distraction_csv,
         "danger": args.can_danger_csv,
     }
     server_thread = threading.Thread(
