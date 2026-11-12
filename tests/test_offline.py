@@ -10,7 +10,7 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from biosignal import simulate
-from biosignal.offline import assess_recording, read_recording, self_warmup
+from biosignal.offline import RecordingAssessor, assess_recording, read_recording, self_warmup
 
 FS = 250.0
 
@@ -62,6 +62,24 @@ class OfflineWarmupTest(unittest.TestCase):
         head = sig[1][sig[0] < sig[0][0] + 3.0]
         self.assertTrue(set(np.unique(warm[1])) <= set(np.unique(head)))
         self.assertGreaterEqual(warm[0][-1], 19.0)
+
+    def test_frame_by_frame_matches_whole_file(self):
+        whole = assess_recording(self.arrest, warmup="self")
+        bio = RecordingAssessor(self.arrest, warmup="self", models=False)
+        seen = []
+        for frame in range(int(15.0 * 30)):           # 30 fps 영상의 프레임 시각
+            now = frame / 30.0
+            st = bio.at(now)
+            if now < 0.99:
+                self.assertIsNone(st)                 # 첫 판정 전
+            if st is not None:
+                self.assertLessEqual(st.t, now)       # 그 시각 뒤의 신호로 판정하지 않는다
+                if not seen or seen[-1] is not st:
+                    seen.append(st)
+        bio.at(bio.end_t)
+        bio.close()
+        self.assertEqual([(s.t, s.level, s.reasons) for s in bio.history],
+                         [(s.t, s.level, s.reasons) for s in whole])
 
     def test_without_warmup_measures_baseline_first(self):
         st = assess_recording(self.arrest, warmup=None)
