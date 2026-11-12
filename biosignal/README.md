@@ -112,6 +112,34 @@ python tools/replay_recording.py "<측정 폴더>" --model models/hr_classifier.
 
 `REC_`와 `SESSION_` 폴더를 모두 읽고, 측정 폴더는 수정하지 않는다.
 
+### 녹화 파일을 비전과 합칠 때 (예열)
+
+| | 실시간 | 녹화 파일 |
+|---|---|---|
+| 기준선 재료 | 들어오는 신호의 처음 10초 | 파일 앞 3초 |
+| 방법 | 실제로 10초 기다림 | 앞 3초를 박동 경계에서 잘라 20초로 이어 붙여 영상 시작 전에 먼저 넣음 |
+| 판정 시작 | 약 10초 | 영상 1초 |
+
+녹화 파일만 넣으면 처음 10초를 기준선 측정에 쓰고, 분석 창(최소 6초, 모델 10초)도 비어 있어 15초 안팎의 시연 영상에서는 판정이 너무 늦다.
+실제 차에서는 사건 전부터 측정하고 있으므로, 영상 시작 시점에 기준선과 분석 창이 차 있는 상태를 재현한다. 판정 알고리즘과 10초 측정 규칙은 바꾸지 않는다.
+
+```bash
+python tools/replay_recording.py recordings/E4 --model models/hr_classifier_ft.pt --ppg-encoder models/papagei_s.pt --ppg-head models/ppg_head_ft.pt --out recordings/E4/bio_status.jsonl
+```
+
+```python
+from biosignal.offline import assess_recording
+statuses = assess_recording("recordings/E4", model_path="models/hr_classifier_ft.pt",
+                            ppg_encoder_path="models/papagei_s.pt", ppg_head_path="models/ppg_head_ft.pt")
+```
+
+- 기본이 파일 앞 3초 예열(`--warmup self`)이다. `--warmup none`은 실시간과 같이 처음 10초를 측정하고, `--warmup <폴더>`는 그 정상 측정 전체로 예열한다.
+- 파일 시각(`clip_s`, 영상 첫 프레임 = 0초)부터의 판정만 기록한다. 비전과 같은 시각끼리 합치면 된다.
+- **파일 전체로 예열하면 안 된다.** 끝에 있는 사건이 예열에 들어가 E4는 1초부터 위험이 나왔다.
+- 앞 3초가 정상 상태라고 가정한다. 비전의 중립 구간 기준선과 같은 가정이다. 앞 3초에서 박동을 3개 이상 찾지 못하면 예열 없이 판정한다.
+- 시작 공백만 없앤다. 사건 뒤 판정까지의 지연(위험 5초 확인, 맥박 소실 8초, 12초 분석 창의 중앙값)은 알고리즘의 실제 반응 시간이라 그대로 남는다.
+- 이어 붙인 예열 신호는 박동 간격 변동이 실제보다 작다. RMSSD 기준값(졸음 참고 지표)은 예열 값에서 시작한다.
+
 ## 주요 사유 코드
 
 | 코드 | 의미 |
