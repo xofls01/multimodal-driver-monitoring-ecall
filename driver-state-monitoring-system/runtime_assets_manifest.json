@@ -1,0 +1,35 @@
+{
+  "files": {
+    "data/recordings_zip_20261112/A_new/biosignals.csv": "afad0d19d7ae69ca0095c5e5c605bd4d7bd9ec0230afdb0b0478e79310f402a0",
+    "data/recordings_zip_20261112/A_new/frames.csv": "3f4041ecd9db164a72a740b86ae83a3371adc515a65747e4077480690184b91b",
+    "data/recordings_zip_20261112/A_new/session.json": "0f459dad3f900da247dc3a05eae16932a58079e45c7368b7edb06947af0a8271",
+    "data/recordings_zip_20261112/A_new/vitals.csv": "9410edf0f2d4659e476800e303af0838f5522348f3e44218ca9f467b4a4bfa52",
+    "data/recordings_zip_20261112/D3/biosignals.csv": "6fb759db9b6942d5a23ec7719d0488f8280f974f06b5dd6e19e63dd9cea7ea3e",
+    "data/recordings_zip_20261112/D3/frames.csv": "40dfdc2634efaa305b70a7d3552fb2c043eb8bd61c2305e443edf109a0dcfb5d",
+    "data/recordings_zip_20261112/D3/session.json": "a56267a970df49ac8061deb8b539bf15e2683f62e8ab67fb2b9c2c2ca0cbec5e",
+    "data/recordings_zip_20261112/D3/vitals.csv": "a40dc6418d5b903895013899528380b9bd2c0195b8f409417218bc608dc9d9ae",
+    "data/recordings_zip_20261112/E4/biosignals.csv": "b1557aca7a1b655ec7a57e96f5d6fdbb92b6a2c23aa72a67b3df5b56b607193f",
+    "data/recordings_zip_20261112/E4/frames.csv": "3074c00db4605ba63785f9d3a3c637c16294428b6200488941dfcd24952ebab3",
+    "data/recordings_zip_20261112/E4/session.json": "d429776708667add1a5e869777d60eb453b9625664daa8b78b0f0a6e4929a9c0",
+    "data/recordings_zip_20261112/E4/vitals.csv": "281514fa6a669e2d44a32da9dd650e800524a810cc3d40c691c711098fe7044b",
+    "data/recordings_zip_20261112/N/biosignals.csv": "b869f5192cfbb663e0666b0b8ae6c3aa23ad300aab923326b58cc01cd5a4023a",
+    "data/recordings_zip_20261112/N/frames.csv": "00dd0f27352a93677d561b837635f78a57cd810f61375281ef0fd1e1180d1d33",
+    "data/recordings_zip_20261112/N/session.json": "1d773843b10bf5dac6ad611022c1bd0032935d94928d81660b19b0c9792593dd",
+    "data/recordings_zip_20261112/N/vitals.csv": "074b87cbb178b9ef17d71c2e10a47575f8de129cfe81072b1e93f4519e033a3d",
+    "data/recordings_zip_20261112/source_archive.json": "4866341bc765ab48ab2a1ed165743cf5a6bd3d3397614e8d3396898e5da32c72",
+    "data/source_videos/A_new.mp4": "6fc9ac627a1d78049c4a3f67792e244ff4fe26612b28fd1d84d280cc1906344e",
+    "data/source_videos/D3.mp4": "7cab5adb48f98375ff4d14fa1f66381a26e4e690fa59ee564373dd7b1dfdc84e",
+    "data/source_videos/E4.mp4": "cf0748a5eae0de866b1bfe9f1ab8233f531d7b68e5c4c960d4f1d8d000eb980e",
+    "data/source_videos/N_recorded.mp4": "0c55e2ac3bd43a621a6dc57619083d27664446ea5cb0196da3f753bf3e6a1118",
+    "models/yolo26n.pt": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+    "models/yolo26n-pose.pt": "eb3bb8268828aeaf515cec23a4bfafd793944a86fe9af94ba7823609c14522a9",
+    "models/biosignal/hr_classifier_ft.pt": "eb0f36a831d84e1a2af0b40104426c7affde93368f8387b22a5234ac4fedb490",
+    "models/biosignal/papagei_s.pt": "79d68671e51bdc951fee853e5a8241099e38148ff26ed888b843849332e0b988",
+    "models/biosignal/ppg_head_ft.pt": "850247a4e82cba9413a60a3767f78af38f84aeac274eadbb06e6477004b45ebf"
+  },
+  "synthetic_clips": [
+    "D3",
+    "E4",
+    "A_new"
+  ]
+}

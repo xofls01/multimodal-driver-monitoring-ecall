@@ -223,10 +223,11 @@ Manual 운전을 하려면 `C`로 Cruise를 끄고 Manual 모드를 사용합니
 ## 데이터 전체 흐름
 
 ```text
-모델/시나리오
-  -> shared.set_driver_state() / publish_prediction()
+모델의 최종 분류 TCP 출력 (5002)
+  -> model_state_client.py (Normal / Caution / Danger만 수신)
+  -> SharedData.receive_model_result()
   -> Python ControlCommand.driver_state
-  -> 20Hz NDJSON TCP
+  -> 20Hz NDJSON TCP (5001, 기존 CAN/차량 명령과 합침)
   -> UnityTcpVehicleBridge.CurrentDriverState
   -> Caution: DriverStateWarningUI
   -> Danger: EmergencyPullOverController -> HazardLightController
@@ -238,13 +239,54 @@ Caution 메시지는 상태가 유지되는 동안 표시되고 Normal로 돌아
 
 ## 실제 모델 연결 위치
 
-`Unity/python/vehicle_tcp_server.py`에서 모델 추론 결과를 얻은 위치에 한 줄을 연결합니다.
+`driver-state-monitoring-system`의 소스·설정·가중치는 수정하지 않습니다. 모델의 기존 TCP 서버를 **5002**로 실행하고, 기존 차량 서버가 그 결과를 받아 Unity의 기존 **5001** 연결로 전달합니다. 모델에 포함된 Unity 스크립트를 현재 프로젝트에 덮어쓸 필요가 없습니다.
 
-```python
-publish_prediction(shared, predicted_label)  # predicted_label: Normal, Caution, Danger
+저장소 루트에서 터미널 두 개를 사용합니다. 먼저 모델 README에 따라 별도 런타임 자료와 모델 실행용 Python 환경을 준비해야 합니다. 현재 Git에 포함된 코드만으로는 가중치·원본 영상·ECG/PPG 자료가 없어 추론을 시작할 수 없습니다.
+
+터미널 1 — 기존 모델 실행 옵션으로 출력 포트만 지정합니다. `E4`는 심정지 시연 입력이며 다른 입력은 `--only N`, `--only D3`, `--only A_new`로 선택할 수 있습니다.
+
+```bash
+sh driver-state-monitoring-system/run_multimodal.sh --only E4 --unity --unity-port 5002
 ```
 
-또는 동일한 동작의 `shared.set_driver_state(predicted_label)`을 호출해도 됩니다. 이 함수는 운전자 상태만 변경하며 Cruise/Remote/Manual 모드는 변경하지 않습니다.
+터미널 2 — 차량 서버를 모델 연결 모드로 실행합니다. 이 서버는 Python 표준 라이브러리만 사용하며 모델용 torch/MediaPipe를 불러오지 않습니다.
+
+```bash
+python3 -B Unity/python/vehicle_tcp_server.py --model-port 5002
+```
+
+이후 Unity Play를 누릅니다. `UnityTcpVehicleBridge`의 Host는 `127.0.0.1`, Port는 기존 `5001`입니다. Unity가 연결돼야 모델 쪽 TCP에 접속하므로 녹화 시나리오가 Unity Play보다 먼저 진행되지 않습니다. Unity 연결이 끊기면 모델 TCP도 닫아 모델의 기존 재접속 대기 동작을 이용합니다. 모델 파일의 분석·초기화 자체는 Unity 연결 전에 시작될 수 있습니다.
+
+연결 후에는 콘솔에 `[MODEL INPUT] active`, 상태가 바뀔 때 `[MODEL] final driver state ...`가 표시됩니다. 모델 재생은 기존 녹화 영상과 저장된 ECG/PPG 입력을 사용합니다. 이 연결 작업에서 실시간 카메라·센서 입력은 추가하지 않았습니다.
+
+- 최종 `fusion_state`를 우선 읽고 `driver_state`와 일치하는 세 분류만 적용합니다. 비전·생체신호 개별 판단, 조향·가속·제동 값은 적용하지 않습니다.
+- Normal은 기존 주행을 유지하고, Caution은 기존 UI·경고음과 CAN 보정을 사용하며, Danger는 기존 비상등·갓길 정차·e-Call 시연으로 이어집니다.
+- 모델 준비 중, 판단 불가, 오래된 결과, 통신 단절은 Caution 경고로 처리합니다. 이미 수신한 Danger는 입력 장애로 해제하지 않습니다. 판단 불가 상태를 모델의 실제 Caution 결과와 구분한 이유는 `status`에 표시합니다.
+- 짧은 Danger 뒤 바로 Normal이 와도 Unity가 `emergency_phase`로 비상 제어 시작을 보고할 때까지 Danger 전달을 유지합니다. 이후 분류가 Normal로 바뀌어도 Unity 비상 정차는 기존처럼 R 초기화 전까지 유지됩니다.
+- 모델 연결 모드에서는 `state ...`와 `scenario caution/danger`를 차단해 실제 분류 결과와 충돌하지 않게 합니다. `can normal/caution/distraction/danger`, `can stop`, `status`, `quit`는 계속 사용할 수 있습니다. CAN 시나리오 이름은 모델 분류를 바꾸지 않습니다.
+- 비상 정차 후 다시 시험하려면 `can stop`, 모델의 실제 Normal 복귀, Unity R 초기화 순서로 진행하고 CAN을 다시 시작합니다. 모델은 해당 터미널에서 종료·재실행해 다시 재생할 수 있습니다.
+
+콘솔 없이 자동 수신만 하려면 `--no-console`을 추가하고 Ctrl+C로 종료합니다. `--model-port`를 생략하면 기존 수동 상태/CAN 시연 모드입니다.
+
+| 설정 | 기본값 | 의미 |
+|---|---|---|
+| `--port` | `5001` | Unity 연결 포트 |
+| `--model-port` | 미지정 | 지정하면 모델 수신 활성화, 로컬에서는 `5002` 권장 |
+| `--model-host` | `127.0.0.1` | 모델 서버 주소 |
+| `--model-timeout` | `1.0`초 | 유효한 모델 형식의 패킷이 안 들어올 때 경고 전환 |
+| `--model-max-age` | `0.75`초 | 수신 결과의 허용 분석 나이, 모델 자체의 판단 불가 처리는 그대로 존중 |
+
+모델 추론과 Unity Editor를 실행하지 않고 Python 연결을 검증하려면 다음을 실행합니다. 실제 루프백 TCP로 패킷 분할·합쳐짐, 상태 전달, 통신 끊김·재접속, Danger 유지와 CAN 우선순위를 확인합니다.
+
+```bash
+python3 -B -m unittest discover -s Unity/python -p 'test_*integration.py' -v
+```
+
+2026-11-13에는 제공받은 `driver-runtime-assets.zip`을 복원하고 Python 3.11.15 전용 `.venv`에 원본 `requirements-lock.txt`를 설치했습니다. 모델 소스 132개 파일과 가중치·원본 입력 26개의 해시를 확인했고, 모델 자체 검증 293개와 CAN/모델 연결 검증 41개가 통과했습니다.
+
+원본 N·D3·E4·A_new 전체 2,123프레임의 실제 추론을 기존 차량 서버와 화면 없는 TCP 수신기로 확인했습니다. 첫 검증의 4분 시간 상한 이후 A_new를 별도로 완료했으며, Unity Editor와 차량 물리는 실행하지 않았습니다. E4는 영상 시간 5.00초에 Caution, 11.01초에 Danger가 처음 출력됐습니다. 정상용 N에서도 `eyes_closed`와 `recovery_pending`에 의한 Caution이 148프레임 발생했으며 원본 모델 판단을 그대로 전달했습니다.
+
+이 환경의 전체 녹화 처리 속도는 7.3~9.2FPS였습니다. 이 수치는 추론·화면 생성·결과 저장을 포함하며 원본 영상 재생보다 느립니다. 실시간 카메라 처리 성능과 실제 Unity 주행은 별도 검증이 필요합니다. 상세 결과는 로컬 `driver-state-monitoring-system/outputs/runtime_validation_20261113/summary.json`, 분석 영상은 해당 결과의 `preview_path`에 있습니다.
 
 ## 문제 해결
 

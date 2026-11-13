@@ -20,6 +20,7 @@ from typing import Any
 from can_adapter import CanAdapter, CanPlaybackConfig
 from can_anomaly import CanDecision
 from can_scenario import CanScenarioPlayer, CanSignals
+from model_state_client import ModelConnectionConfig, ModelStateClient
 
 
 @dataclass
@@ -63,15 +64,19 @@ class ControlCommand:
 
 
 class SharedData:
-    def __init__(self) -> None:
-        self.lock = threading.Lock()
-        self.command = ControlCommand()
+    def __init__(self, *, model_input_enabled: bool = False) -> None:
+        # Model results and CAN samples share one atomic state/control transition.
+        self.lock = threading.RLock()
+        self.command = ControlCommand(driver_state="Caution" if model_input_enabled else "Normal")
         self.latest_state: dict[str, Any] | None = None
         self.connected_address: tuple[str, int] | None = None
         self.running = True
         self.latest_can_state: CanSignals | None = None
         self.can_decision: CanDecision | None = None
         self.can_control_locked = False
+        self.model_input_enabled = model_input_enabled
+        self.model_input_status = "waiting_for_unity" if model_input_enabled else "disabled"
+        self._model_danger_pending = False
 
     def update_command(self, **changes: Any) -> None:
         with self.lock:
@@ -92,16 +97,17 @@ class SharedData:
                     self.command.steering = 0.0
                 self.command.hazard = True
 
-    def set_driver_state(self, predicted_state: str) -> None:
+    def set_driver_state(self, predicted_state: str, *, from_model: bool = False) -> None:
         """상태만 변경합니다. Cruise/Remote/Manual 모드에는 손대지 않습니다."""
         state = predicted_state.strip().capitalize()
         if state not in {"Normal", "Caution", "Danger"}:
             raise ValueError("운전자 상태는 Normal, Caution, Danger 중 하나여야 합니다.")
         with self.lock:
+            if self.model_input_enabled and not from_model:
+                raise ValueError("모델 연결 모드에서는 state/scenario 대신 실제 모델 결과를 사용합니다.")
             previous = self.command.driver_state
-        self.update_command(driver_state=state)
-        if state == "Normal":
-            with self.lock:
+            self.update_command(driver_state=state)
+            if state == "Normal":
                 self.command.steer_correction_active = False
                 self.command.accel_limit_active = False
                 if self.can_control_locked and not self.command.can_active:
@@ -115,14 +121,41 @@ class SharedData:
         if previous != state:
             print(f"[MODEL] final driver state {previous} -> {state}")
 
+    def receive_model_result(self, state: str | None, status: str) -> None:
+        """Accept a final label only; no model packet can change vehicle controls.
+
+        Missing/stale input keeps a warning, never invents Normal or a new
+        Danger. A previously received Danger is retained on input failure.
+        Unity's emergency latch remains authoritative even after a fresh Normal.
+        """
+        with self.lock:
+            previous_status = self.model_input_status
+            self.model_input_status = status
+            if state is None:
+                state = "Danger" if self.command.driver_state == "Danger" else "Caution"
+            elif state == "Danger":
+                # Preserve brief Danger -> Normal bursts until Unity has
+                # acknowledged its existing emergency latch via vehicle_state.
+                self._model_danger_pending = True
+            self.set_driver_state(state, from_model=True)
+        if status != previous_status:
+            print(f"[MODEL INPUT] {status}; driver_state={state}")
+
     def next_command_json(self) -> str:
         with self.lock:
             self.command.sequence += 1
-            return json.dumps(asdict(self.command), separators=(",", ":")) + "\n"
+            packet = asdict(self.command)
+            if self._model_danger_pending:
+                packet.update(driver_state="Danger", hazard=True)
+            return json.dumps(packet, separators=(",", ":")) + "\n"
 
     def set_state(self, state: dict[str, Any]) -> None:
         with self.lock:
             self.latest_state = state
+            if state.get("emergency_phase") in {
+                "SignalAndSlow", "MoveToShoulder", "StraightenAndBrake", "Stopped", "StopInPlace"
+            }:
+                self._model_danger_pending = False
 
     def snapshot(self) -> tuple[ControlCommand, dict[str, Any] | None]:
         with self.lock:
@@ -132,7 +165,9 @@ class SharedData:
 
     def begin_can_playback(self, name: str) -> None:
         with self.lock:
-            if self.command.driver_state == "Danger":
+            if self.command.driver_state == "Danger" or self._model_danger_pending:
+                if self.model_input_enabled:
+                    raise ValueError("Danger 상태입니다. 모델이 정상으로 복귀한 뒤 Unity R로 초기화하세요.")
                 raise ValueError("Danger 상태입니다. Unity R 초기화 전에 state normal을 전송하세요.")
             phase = None if self.latest_state is None else self.latest_state.get("emergency_phase")
             if phase not in (None, "Idle", "Unavailable"):
@@ -265,6 +300,8 @@ class ScenarioRunner:
     def start(self, name: str) -> None:
         if name not in SCENARIO_STEPS:
             raise ValueError(f"지원하지 않는 시나리오: {name}")
+        if self.shared.model_input_enabled:
+            raise ValueError("모델 연결 모드에서는 실제 모델 결과를 사용합니다.")
 
         self.stop(wait=True)
         stop_event = threading.Event()
@@ -440,6 +477,8 @@ def print_status(shared: SharedData) -> None:
         f"release={command.can_release_reason or '-'} "
         f"can_locked={shared.can_control_locked}"
     )
+    if shared.model_input_enabled:
+        print(f"[MODEL INPUT] {shared.model_input_status}")
 
     if state is None:
         print("[STATE] 아직 Unity 차량 상태를 받지 못했습니다.")
@@ -600,6 +639,8 @@ def console_loop(
                         else "[SCENARIO] 실행 중인 시나리오가 없습니다."
                     )
                 else:
+                    if shared.model_input_enabled:
+                        raise ValueError("모델 연결 모드에서는 상태 시나리오를 실행할 수 없습니다. CAN 재생은 가능합니다.")
                     can_player.stop()
                     shared.finish_can_playback(release_control=True)
                     scenarios.start(parts[1])
@@ -640,6 +681,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=5001)
     parser.add_argument("--send-rate", type=float, default=20.0)
+    parser.add_argument("--model-host", default="127.0.0.1")
+    parser.add_argument("--model-port", type=int, help="Enable final-label input from the unmodified model (recommended: 5002)")
+    parser.add_argument("--model-timeout", type=float, default=1.0, help="Seconds without a valid result before warning")
+    parser.add_argument("--model-max-age", type=float, default=0.75, help="Maximum model prediction age in seconds")
+    parser.add_argument("--no-console", action="store_true", help="Run continuously without interactive commands")
     data_dir = Path(__file__).resolve().parents[1] / "data"
     parser.add_argument("--can-normal-csv", type=Path, default=data_dir / "can_normal_60kmh_15s.csv")
     parser.add_argument("--can-caution-csv", type=Path, default=data_dir / "can_caution_drowsy_drift_15s.csv")
@@ -653,7 +699,15 @@ def main() -> None:
     args = parse_args()
     if args.can_max_steering_angle <= 0:
         raise ValueError("--can-max-steering-angle must be positive")
-    shared = SharedData()
+    model_config = None
+    if args.model_port is not None:
+        if args.model_host in {"localhost", "127.0.0.1", "::1"} and args.model_port == args.port:
+            raise ValueError("Unity와 로컬 모델 서버는 다른 포트를 사용해야 합니다. --model-port 5002를 사용하세요.")
+        model_config = ModelConnectionConfig(
+            host=args.model_host, port=args.model_port,
+            timeout_s=args.model_timeout, max_prediction_age_s=args.model_max_age,
+        )
+    shared = SharedData(model_input_enabled=model_config is not None)
     scenarios = ScenarioRunner(shared)
     can_adapter = CanAdapter(
         shared,
@@ -677,10 +731,27 @@ def main() -> None:
         name="UnityTcpServer",
     )
     server_thread.start()
+    model_client = None
+    if model_config is not None:
+        model_client = ModelStateClient(
+            model_config, shared.receive_model_result,
+            unity_ready=lambda: shared.connected_address is not None,
+        )
+        model_client.start()
+        print(f"[MODEL INPUT] {model_config.host}:{model_config.port}; waiting for Unity Play. "
+              "Only final Normal/Caution/Danger labels are applied; state/scenario commands are disabled.")
 
     try:
-        console_loop(shared, scenarios, can_player, can_adapter, can_paths)
+        if args.no_console:
+            while shared.running:
+                time.sleep(0.2)
+        else:
+            console_loop(shared, scenarios, can_player, can_adapter, can_paths)
+    except KeyboardInterrupt:
+        pass
     finally:
+        if model_client is not None:
+            model_client.stop()
         scenarios.stop(wait=True)
         can_player.stop()
         shared.running = False
