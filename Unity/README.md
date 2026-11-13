@@ -238,32 +238,39 @@ Manual 운전을 하려면 `C`로 Cruise를 끄고 Manual 모드를 사용합니
 
 Caution 메시지는 상태가 유지되는 동안 표시되고 Normal로 돌아가면 자동으로 사라집니다. 경고음은 Caution 진입 즉시 재생하고, 상태가 유지되는 동안 0.5초 간격으로 반복합니다. Normal이나 Danger로 바뀌면 Caution 경고음을 중단합니다. 비상 정차 중에는 분류가 흔들려도 Emergency 컨트롤과 중앙의 빨간 비상 카드가 우선합니다. 실제 조향 보정·가속 제한은 하단의 보조 알림으로 표시합니다.
 
-## 저장된 E4 분석과 CAN danger 동시 재생
+## 저장된 모델 분석과 CAN 4개 시나리오 동시 재생
 
 현재 시연에 사용하는 실행 방식입니다. 사전 분석 결과를 재생하며 모델 추론을 다시 하지 않습니다.
 
-준비물은 모델용 Python 환경(`driver-state-monitoring-system/.venv`)과 E4 분석 결과 폴더입니다. 결과 폴더에는 `preview.mp4`, `unity_packets.jsonl`, `summary.json`이 있어야 합니다. 아직 분석 결과가 없다면 런타임 자료와 모델 환경을 준비한 뒤 아래 명령으로 한 번 생성합니다.
+준비물은 모델용 Python 환경(`driver-state-monitoring-system/.venv`)과 선택한 영상의 분석 결과 폴더입니다. 결과 폴더에는 `preview.mp4`, `unity_packets.jsonl`, `summary.json`이 있어야 합니다. 아직 분석 결과가 없다면 런타임 자료와 모델 환경을 준비한 뒤 아래 명령으로 생성합니다. `--only`에는 필요한 영상 ID만 지정해도 됩니다.
 
 ```bash
-python3 -B Unity/python/run_driver_model.py --only E4
+python3 -B Unity/python/run_driver_model.py --only N D3 A_new E4
 ```
 
 연동 실행 순서:
 
 1. 실행 중인 기존 Python 차량 서버와 모델을 종료합니다. 이 재생기가 차량 서버 역할도 수행합니다.
 2. Unity에서 `BasicDrivingStage1` Scene을 열고 TCP Host `127.0.0.1`, Port `5001`을 확인합니다.
-3. 프로젝트 루트의 터미널에서 다음 명령을 실행합니다.
+3. 프로젝트 루트의 터미널에서 시나리오 하나를 선택해 실행합니다.
 
 ```bash
-python3 -B Unity/python/play_can_model.py
+python3 -B Unity/python/play_can_model.py danger
 ```
 
-4. Unity에서 **Play**를 누릅니다. 연결되면 저장된 E4 가시화 영상·모델 판단과 `can danger`가 함께 시작됩니다. 별도로 `can danger`를 입력하거나 모델을 실행하지 않습니다.
-5. 영상이 끝난 뒤에도 연결이 유지되므로 Unity의 비상 정차를 확인합니다. 영상 창에서 `q` 또는 터미널에서 Ctrl+C로 종료합니다.
+| 명령 | CAN CSV | 모델 영상 |
+|---|---|---|
+| `python3 -B Unity/python/play_can_model.py normal` | `can_normal_60kmh_15s.csv` | N |
+| `python3 -B Unity/python/play_can_model.py caution` | `can_caution_drowsy_drift_15s.csv` (18초) | D3 |
+| `python3 -B Unity/python/play_can_model.py distraction` | `can_distraction_held_steer_15s.csv` | A_new |
+| `python3 -B Unity/python/play_can_model.py danger` | `can_danger_steer_accel_15s.csv` | E4 |
+
+4. Unity에서 **Play**를 누릅니다. 연결되면 선택한 가시화 영상·모델 판단과 대응 CAN 시나리오가 함께 시작됩니다. 별도로 `can ...`를 입력하거나 모델을 실행하지 않습니다. 시나리오 인수를 생략한 기존 명령은 `danger`로 동작합니다.
+5. 영상이 끝난 뒤에도 연결은 유지됩니다. 비상 정차가 진행 중이면 완료까지 확인하고, 영상 창에서 `q` 또는 터미널에서 Ctrl+C로 종료합니다.
 
 영상·판단 결과·CAN은 같은 시작 시점을 사용합니다. Normal은 CAN 주행, Caution은 경고와 필요한 차량 보정, Danger는 기존 비상 정차로 이어집니다. 판단은 CSV 정답 라벨이 아닌 저장된 실제 모델 출력에서 읽습니다.
 
-기본으로 가장 최근의 완료된 E4 분석 결과를 선택합니다. 특정 결과를 선택하려면 `--recording` 뒤에 `preview.mp4`와 `unity_packets.jsonl`이 있는 E4 폴더 경로를 넣습니다. Unity 연결 포트를 바꾸려면 `--port`와 Unity의 Port를 함께 변경합니다.
+기본으로 선택한 모델 영상의 가장 최근 완료된 분석 결과를 선택합니다. 특정 결과를 선택하려면 `--recording` 뒤에 `preview.mp4`와 `unity_packets.jsonl`이 있는 해당 영상 폴더 경로를 넣습니다. 시나리오와 다른 모델 영상의 판단 로그는 받지 않습니다. Unity 연결 포트를 바꾸려면 `--port`와 Unity의 Port를 함께 변경합니다. CAN이 영상보다 먼저 끝나면 일반 주행으로 복귀하며 영상은 끝까지 재생합니다. Danger 비상 제어는 계속 우선합니다.
 
 다시 시연할 때는 **재생기 종료 → Unity Stop → 같은 재생 명령 실행 → Unity Play** 순서로 시작합니다. Danger 이후 비상 제어가 유지되므로 새 실행 전에 Unity Play 상태를 초기화합니다.
 
