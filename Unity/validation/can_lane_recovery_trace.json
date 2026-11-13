@@ -1,0 +1,436 @@
+[
+  {
+    "time_s": 2.0,
+    "center_offset_m": 0.0034695863723754883,
+    "raw_steering": 0.0,
+    "applied_steering": 0.0,
+    "assist_active": false
+  },
+  {
+    "time_s": 2.0990445419447497,
+    "center_offset_m": 0.0034713149070739746,
+    "raw_steering": 0.0,
+    "applied_steering": 0.0,
+    "assist_active": false
+  },
+  {
+    "time_s": 2.200533583993092,
+    "center_offset_m": 0.0034821629524230957,
+    "raw_steering": 0.0,
+    "applied_steering": 0.0,
+    "assist_active": false
+  },
+  {
+    "time_s": 2.299816709011793,
+    "center_offset_m": 0.003486454486846924,
+    "raw_steering": 0.0,
+    "applied_steering": 0.0,
+    "assist_active": false
+  },
+  {
+    "time_s": 2.3996693750377744,
+    "center_offset_m": 0.0034949779510498047,
+    "raw_steering": 0.0,
+    "applied_steering": 0.0,
+    "assist_active": false
+  },
+  {
+    "time_s": 2.4998971249442548,
+    "center_offset_m": 0.0035033226013183594,
+    "raw_steering": 0.0,
+    "applied_steering": 0.0,
+    "assist_active": false
+  },
+  {
+    "time_s": 2.599682959029451,
+    "center_offset_m": 0.0035102367401123047,
+    "raw_steering": 0.0,
+    "applied_steering": 0.0,
+    "assist_active": false
+  },
+  {
+    "time_s": 2.6996457090135664,
+    "center_offset_m": 0.0035148262977600098,
+    "raw_steering": 0.0,
+    "applied_steering": 0.0,
+    "assist_active": false
+  },
+  {
+    "time_s": 2.8006926249945536,
+    "center_offset_m": 0.003516674041748047,
+    "raw_steering": -0.0,
+    "applied_steering": 0.0,
+    "assist_active": false
+  },
+  {
+    "time_s": 2.8996851249830797,
+    "center_offset_m": 0.0035158395767211914,
+    "raw_steering": -0.0,
+    "applied_steering": 0.0,
+    "assist_active": false
+  },
+  {
+    "time_s": 3.0002360419603065,
+    "center_offset_m": 0.0035066604614257812,
+    "raw_steering": -0.011000000000000001,
+    "applied_steering": 0.0,
+    "assist_active": false
+  },
+  {
+    "time_s": 3.1002567920368165,
+    "center_offset_m": 0.00242537260055542,
+    "raw_steering": -0.011000000000000001,
+    "applied_steering": -0.010999999940395355,
+    "assist_active": false
+  },
+  {
+    "time_s": 3.2003458340186626,
+    "center_offset_m": -0.0005483627319335938,
+    "raw_steering": -0.052333333333333336,
+    "applied_steering": -0.010999999940395355,
+    "assist_active": false
+  },
+  {
+    "time_s": 3.3004104589344934,
+    "center_offset_m": -0.01000213623046875,
+    "raw_steering": -0.052333333333333336,
+    "applied_steering": -0.05233333259820938,
+    "assist_active": false
+  },
+  {
+    "time_s": 3.400438459008001,
+    "center_offset_m": -0.029823482036590576,
+    "raw_steering": -0.07166666666666667,
+    "applied_steering": -0.05233333259820938,
+    "assist_active": false
+  },
+  {
+    "time_s": 3.4997876250417903,
+    "center_offset_m": -0.06417572498321533,
+    "raw_steering": -0.07166666666666667,
+    "applied_steering": -0.0716666653752327,
+    "assist_active": false
+  },
+  {
+    "time_s": 3.600336833973415,
+    "center_offset_m": -0.11693054437637329,
+    "raw_steering": -0.06333333333333332,
+    "applied_steering": -0.0716666653752327,
+    "assist_active": false
+  },
+  {
+    "time_s": 3.700674458988942,
+    "center_offset_m": -0.18932580947875977,
+    "raw_steering": -0.06333333333333332,
+    "applied_steering": -0.03133334219455719,
+    "assist_active": true
+  },
+  {
+    "time_s": 3.799832792021334,
+    "center_offset_m": -0.2738777995109558,
+    "raw_steering": -0.036333333333333336,
+    "applied_steering": 0.04866662621498108,
+    "assist_active": true
+  },
+  {
+    "time_s": 3.9002269170014188,
+    "center_offset_m": -0.3579743504524231,
+    "raw_steering": -0.036333333333333336,
+    "applied_steering": 0.07966375350952148,
+    "assist_active": true
+  },
+  {
+    "time_s": 4.000434041954577,
+    "center_offset_m": -0.43390926718711853,
+    "raw_steering": 0.0,
+    "applied_steering": 0.07585206627845764,
+    "assist_active": true
+  },
+  {
+    "time_s": 4.100316041964106,
+    "center_offset_m": -0.4962156265974045,
+    "raw_steering": 0.0,
+    "applied_steering": 0.0695912167429924,
+    "assist_active": true
+  },
+  {
+    "time_s": 4.199804916977882,
+    "center_offset_m": -0.5412731915712357,
+    "raw_steering": 0.036333333333333336,
+    "applied_steering": 0.05728340893983841,
+    "assist_active": true
+  },
+  {
+    "time_s": 4.300248709041625,
+    "center_offset_m": -0.5677447617053986,
+    "raw_steering": 0.036333333333333336,
+    "applied_steering": 0.04601064324378967,
+    "assist_active": true
+  },
+  {
+    "time_s": 4.400337458937429,
+    "center_offset_m": -0.5765041708946228,
+    "raw_steering": 0.06333333333333332,
+    "applied_steering": 0.03296628221869469,
+    "assist_active": true
+  },
+  {
+    "time_s": 4.500524417031556,
+    "center_offset_m": -0.5699264109134674,
+    "raw_steering": 0.06333333333333332,
+    "applied_steering": 0.023055078461766243,
+    "assist_active": true
+  },
+  {
+    "time_s": 4.599772999994457,
+    "center_offset_m": -0.5511922389268875,
+    "raw_steering": 0.07166666666666667,
+    "applied_steering": 0.013008407317101955,
+    "assist_active": true
+  },
+  {
+    "time_s": 4.699969667010009,
+    "center_offset_m": -0.5229505747556686,
+    "raw_steering": 0.07166666666666667,
+    "applied_steering": 0.006017644889652729,
+    "assist_active": true
+  },
+  {
+    "time_s": 4.80010241700802,
+    "center_offset_m": -0.48823583126068115,
+    "raw_steering": 0.052333333333333336,
+    "applied_steering": -0.0005851626629009843,
+    "assist_active": true
+  },
+  {
+    "time_s": 4.900668249931186,
+    "center_offset_m": -0.4493347406387329,
+    "raw_steering": 0.052333333333333336,
+    "applied_steering": -0.004767551086843014,
+    "assist_active": true
+  },
+  {
+    "time_s": 5.000497541972436,
+    "center_offset_m": -0.4089963138103485,
+    "raw_steering": 0.015000000000000001,
+    "applied_steering": -0.00822910014539957,
+    "assist_active": true
+  },
+  {
+    "time_s": 5.100180958979763,
+    "center_offset_m": -0.36830851435661316,
+    "raw_steering": 0.015000000000000001,
+    "applied_steering": -0.00997916143387556,
+    "assist_active": true
+  },
+  {
+    "time_s": 5.200117249973118,
+    "center_offset_m": -0.3287775218486786,
+    "raw_steering": 0.021333333333333333,
+    "applied_steering": -0.011079843156039715,
+    "assist_active": true
+  },
+  {
+    "time_s": 5.300027834018692,
+    "center_offset_m": -0.29141369462013245,
+    "raw_steering": 0.021333333333333333,
+    "applied_steering": -0.011139046400785446,
+    "assist_active": true
+  },
+  {
+    "time_s": 5.400276749976911,
+    "center_offset_m": -0.2571527361869812,
+    "raw_steering": 0.033666666666666664,
+    "applied_steering": -0.010795476846396923,
+    "assist_active": true
+  },
+  {
+    "time_s": 5.5002179589355364,
+    "center_offset_m": -0.226263165473938,
+    "raw_steering": 0.033666666666666664,
+    "applied_steering": -0.009949218481779099,
+    "assist_active": true
+  },
+  {
+    "time_s": 5.599600333953276,
+    "center_offset_m": -0.1988655924797058,
+    "raw_steering": 0.037000000000000005,
+    "applied_steering": -0.008953426964581013,
+    "assist_active": true
+  },
+  {
+    "time_s": 5.6999744169879705,
+    "center_offset_m": -0.174765944480896,
+    "raw_steering": 0.037000000000000005,
+    "applied_steering": -0.007802760694175959,
+    "assist_active": true
+  },
+  {
+    "time_s": 5.800846667028964,
+    "center_offset_m": -0.15375220775604248,
+    "raw_steering": 0.034,
+    "applied_steering": -0.006694065406918526,
+    "assist_active": true
+  },
+  {
+    "time_s": 5.899350209045224,
+    "center_offset_m": -0.13583922386169434,
+    "raw_steering": 0.034,
+    "applied_steering": -0.005628990475088358,
+    "assist_active": true
+  },
+  {
+    "time_s": 6.000105667044409,
+    "center_offset_m": -0.12007653713226318,
+    "raw_steering": 0.025333333333333333,
+    "applied_steering": -0.004725887905806303,
+    "assist_active": true
+  },
+  {
+    "time_s": 6.100116709014401,
+    "center_offset_m": -0.10652899742126465,
+    "raw_steering": 0.025333333333333333,
+    "applied_steering": -0.003926907200366259,
+    "assist_active": true
+  },
+  {
+    "time_s": 6.200432333978824,
+    "center_offset_m": -0.09472078084945679,
+    "raw_steering": 0.013666666666666666,
+    "applied_steering": -0.0032958087977021933,
+    "assist_active": true
+  },
+  {
+    "time_s": 6.299294000025839,
+    "center_offset_m": -0.08453178405761719,
+    "raw_steering": 0.013666666666666666,
+    "applied_steering": -0.002728116000071168,
+    "assist_active": true
+  },
+  {
+    "time_s": 6.400096958968788,
+    "center_offset_m": -0.07562106847763062,
+    "raw_steering": 0.0,
+    "applied_steering": -0.0022910982370376587,
+    "assist_active": true
+  },
+  {
+    "time_s": 6.499973375000991,
+    "center_offset_m": -0.06787407398223877,
+    "raw_steering": 0.0,
+    "applied_steering": -0.0018845570739358664,
+    "assist_active": true
+  },
+  {
+    "time_s": 6.59992125001736,
+    "center_offset_m": -0.061117708683013916,
+    "raw_steering": -0.013666666666666666,
+    "applied_steering": -0.0015945183113217354,
+    "assist_active": true
+  },
+  {
+    "time_s": 6.699439499992877,
+    "center_offset_m": -0.05512911081314087,
+    "raw_steering": -0.013666666666666666,
+    "applied_steering": -0.0013284579617902637,
+    "assist_active": true
+  },
+  {
+    "time_s": 6.800000834045932,
+    "center_offset_m": -0.049794673919677734,
+    "raw_steering": -0.025333333333333333,
+    "applied_steering": -0.0011634216643869877,
+    "assist_active": true
+  },
+  {
+    "time_s": 6.90065562503878,
+    "center_offset_m": -0.044988930225372314,
+    "raw_steering": -0.025333333333333333,
+    "applied_steering": -0.001006105332635343,
+    "assist_active": true
+  },
+  {
+    "time_s": 7.00039870897308,
+    "center_offset_m": -0.04071640968322754,
+    "raw_steering": -0.034,
+    "applied_steering": -0.0009185184608213603,
+    "assist_active": true
+  },
+  {
+    "time_s": 7.099487124942243,
+    "center_offset_m": -0.03685861825942993,
+    "raw_steering": -0.034,
+    "applied_steering": -0.0008151955553330481,
+    "assist_active": true
+  },
+  {
+    "time_s": 7.199314625002444,
+    "center_offset_m": -0.0333174467086792,
+    "raw_steering": -0.037000000000000005,
+    "applied_steering": -0.0007573043694719672,
+    "assist_active": true
+  },
+  {
+    "time_s": 7.299898625002243,
+    "center_offset_m": -0.03012186288833618,
+    "raw_steering": -0.037000000000000005,
+    "applied_steering": -0.0006775560905225575,
+    "assist_active": true
+  },
+  {
+    "time_s": 7.4001391249476,
+    "center_offset_m": -0.027225255966186523,
+    "raw_steering": -0.033666666666666664,
+    "applied_steering": -0.0006330061587505043,
+    "assist_active": true
+  },
+  {
+    "time_s": 7.499729583971202,
+    "center_offset_m": -0.024622559547424316,
+    "raw_steering": -0.033666666666666664,
+    "applied_steering": -0.0005679819732904434,
+    "assist_active": true
+  },
+  {
+    "time_s": 7.599311374942772,
+    "center_offset_m": -0.02225440740585327,
+    "raw_steering": -0.021333333333333333,
+    "applied_steering": -0.0005312098073773086,
+    "assist_active": true
+  },
+  {
+    "time_s": 7.699880167027004,
+    "center_offset_m": -0.020078063011169434,
+    "raw_steering": -0.021333333333333333,
+    "applied_steering": -0.00048130640061572194,
+    "assist_active": true
+  },
+  {
+    "time_s": 7.800333417020738,
+    "center_offset_m": -0.01810699701309204,
+    "raw_steering": -0.004333333333333333,
+    "applied_steering": -0.00045356573536992073,
+    "assist_active": true
+  },
+  {
+    "time_s": 7.90025158401113,
+    "center_offset_m": -0.016317665576934814,
+    "raw_steering": -0.004333333333333333,
+    "applied_steering": -0.00041500659426674247,
+    "assist_active": true
+  },
+  {
+    "time_s": 8.000515833962709,
+    "center_offset_m": -0.01503986120223999,
+    "raw_steering": -0.004333333333333333,
+    "applied_steering": -0.004333333112299442,
+    "assist_active": false
+  },
+  {
+    "time_s": 8.099953167024069,
+    "center_offset_m": -0.014610469341278076,
+    "raw_steering": -0.004333333333333333,
+    "applied_steering": -0.004333333112299442,
+    "assist_active": false
+  }
+]
