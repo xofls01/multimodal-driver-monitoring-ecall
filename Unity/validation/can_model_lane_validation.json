@@ -1,0 +1,402 @@
+{
+  "environment": "Unity 6.3 LTS 6000.3.25f1, macOS Metal, BasicDrivingStage1",
+  "scope": "Real Unity WheelCollider physics. Saved D3/A_new model results replayed at source_timestamp relative to the original CAN timestamps; driver state not held at Caution. Model source and model output unchanged.",
+  "limits": [
+    "Each Unity Play stopped after about 14 seconds. Windows start from a fresh vehicle pose rather than continuing one full 18-second run.",
+    "Warm-up capped at 4 seconds; minimum startup speeds are included in each result. Drift and recovery occur near 60 km/h.",
+    "No new model inference or arbitrary-delay guarantee. Danger behavior reviewed by control priority and unchanged-source checks; no new Danger Play test.",
+    "Interrupted runs are excluded from passing results."
+  ],
+  "acceptance": {
+    "minimum_vehicle_envelope_clearance_m": 0.15,
+    "minimum_actual_departure_m": 0.25,
+    "maximum_final_center_error_m": 0.15,
+    "maximum_final_heading_error_deg": 1,
+    "steering_both_directions": true,
+    "window_coverage_required": true
+  },
+  "settings": {
+    "entry_center_error_m": 0.15,
+    "entry_lateral_speed_mps": 0.25,
+    "entry_heading_error_deg": 1,
+    "entry_lookahead_s": 0.15,
+    "entry_position_gain_multiplier": 1.3,
+    "entry_steering_input_slew_per_s": 1.2,
+    "steering_input_limit": 0.14,
+    "max_lateral_acceleration_mps2": 3.5,
+    "pose_stable_hold_s": 1,
+    "raw_neutral_hold_s": 0.1
+  },
+  "sources": {
+    "caution": "driver-state-monitoring-system/outputs/connection_check_20261113_125818/inference/D3/unity_packets.jsonl",
+    "distraction": "driver-state-monitoring-system/outputs/connection_check_20261113_130327/inference/A_new/unity_packets.jsonl"
+  },
+  "integrity_checks": {
+    "EmergencyPullOverController.cs": true,
+    "Unity/data/can_danger_steer_accel_15s.csv": true,
+    "Unity/python/can_adapter.py": true,
+    "Unity/python/vehicle_tcp_server.py": true,
+    "active_emergency_unchanged": true,
+    "model_sources_unchanged": true,
+    "active_copy_matches_CautionLaneAssistController.cs": true,
+    "active_copy_matches_BasicWheelVehicleController.cs": true,
+    "active_copy_matches_DriverStateWarningUI.cs": true
+  },
+  "tested_script_sha256": {
+    "CautionLaneAssistController.cs": "8eb17bf88c9cb107e06aec7431d4d2fe463add148def8fbdcff9e863c9347eca",
+    "BasicWheelVehicleController.cs": "8f7b1ba34a82895be74076ac510a9bd82f0390fe3c1635d065de48c79e64f190",
+    "DriverStateWarningUI.cs": "475bda583a6b93c3833151f057be692a508a61aab046862c2b03ddebc603947b"
+  },
+  "results": [
+    {
+      "scenario": "caution",
+      "window": [
+        2.5,
+        7.9
+      ],
+      "samples": 114,
+      "peak_center_offset_m": 0.8185556381940842,
+      "final_center_offset_m": 0.012355446815490723,
+      "final_heading_deg": 0.026093145832419395,
+      "min_clearance_m": 0.33116212487220764,
+      "physics_min_clearance_m": 0.33116212487220764,
+      "steering_range": [
+        -0.0716666653752327,
+        0.0984480232000351
+      ],
+      "assist_frames": 82,
+      "normal_recovery_frames": 50,
+      "late_entry_observed": true,
+      "observed_states": [
+        "Caution",
+        "Normal"
+      ],
+      "min_speed_kph": 52.468727111816406,
+      "observed_time_range": [
+        2.6,
+        7.8
+      ],
+      "passed": true,
+      "events": [
+        {
+          "can_time_s": 2.6,
+          "received_state": "Normal",
+          "assist_active": false,
+          "reason": "not_caution_can_control",
+          "control_mode": "Cruise"
+        },
+        {
+          "can_time_s": 2.6,
+          "received_state": "Normal",
+          "assist_active": false,
+          "reason": "not_caution_can_control",
+          "control_mode": "Remote"
+        },
+        {
+          "can_time_s": 3.8,
+          "received_state": "Caution",
+          "assist_active": true,
+          "reason": "delayed_caution_existing_drift",
+          "control_mode": "Remote"
+        },
+        {
+          "can_time_s": 5.4,
+          "received_state": "Normal",
+          "assist_active": true,
+          "reason": "delayed_caution_existing_drift",
+          "control_mode": "Remote"
+        },
+        {
+          "can_time_s": 7.8,
+          "received_state": "Normal",
+          "assist_active": false,
+          "reason": "raw_neutral_and_pose_stable",
+          "control_mode": "Remote"
+        },
+        {
+          "can_time_s": 7.8,
+          "received_state": "Normal",
+          "assist_active": false,
+          "reason": "not_caution_can_control",
+          "control_mode": "Cruise"
+        }
+      ],
+      "normal_before_first_caution_no_assist": true
+    },
+    {
+      "scenario": "caution",
+      "window": [
+        7.8,
+        12.9
+      ],
+      "samples": 110,
+      "peak_center_offset_m": 0.49833209812641144,
+      "final_center_offset_m": 0.01190340518951416,
+      "final_heading_deg": -0.055084228515625,
+      "min_clearance_m": 0.663995623588562,
+      "physics_min_clearance_m": 0.6631442904472351,
+      "steering_range": [
+        -0.03233333304524422,
+        0.08385605365037918
+      ],
+      "assist_frames": 78,
+      "normal_recovery_frames": 40,
+      "late_entry_observed": true,
+      "observed_states": [
+        "Caution",
+        "Normal"
+      ],
+      "min_speed_kph": 52.468727111816406,
+      "observed_time_range": [
+        7.8,
+        12.8
+      ],
+      "passed": true,
+      "events": [
+        {
+          "can_time_s": 7.8,
+          "received_state": "Normal",
+          "assist_active": false,
+          "reason": "not_caution_can_control",
+          "control_mode": "Cruise"
+        },
+        {
+          "can_time_s": 7.8,
+          "received_state": "Normal",
+          "assist_active": false,
+          "reason": "not_caution_can_control",
+          "control_mode": "Remote"
+        },
+        {
+          "can_time_s": 9.0,
+          "received_state": "Caution",
+          "assist_active": false,
+          "reason": "not_caution_can_control",
+          "control_mode": "Remote"
+        },
+        {
+          "can_time_s": 9.0,
+          "received_state": "Caution",
+          "assist_active": true,
+          "reason": "delayed_caution_existing_drift",
+          "control_mode": "Remote"
+        },
+        {
+          "can_time_s": 11.0,
+          "received_state": "Normal",
+          "assist_active": true,
+          "reason": "delayed_caution_existing_drift",
+          "control_mode": "Remote"
+        },
+        {
+          "can_time_s": 12.8,
+          "received_state": "Normal",
+          "assist_active": false,
+          "reason": "not_caution_can_control",
+          "control_mode": "Remote"
+        },
+        {
+          "can_time_s": 12.8,
+          "received_state": "Normal",
+          "assist_active": false,
+          "reason": "not_caution_can_control",
+          "control_mode": "Cruise"
+        }
+      ],
+      "normal_before_first_caution_no_assist": true
+    },
+    {
+      "scenario": "caution",
+      "window": [
+        12.8,
+        18.6
+      ],
+      "samples": 124,
+      "peak_center_offset_m": 0.8199708983302116,
+      "final_center_offset_m": 0.03944277763366699,
+      "final_heading_deg": -0.09332275390625,
+      "min_clearance_m": 0.33062589168548584,
+      "physics_min_clearance_m": 0.3303323984146118,
+      "steering_range": [
+        -0.03233333304524422,
+        0.09361497312784195
+      ],
+      "assist_frames": 72,
+      "normal_recovery_frames": 19,
+      "late_entry_observed": true,
+      "observed_states": [
+        "Caution",
+        "Normal"
+      ],
+      "min_speed_kph": 50.95094299316406,
+      "observed_time_range": [
+        12.8,
+        17.8
+      ],
+      "passed": true,
+      "events": [
+        {
+          "can_time_s": 12.8,
+          "received_state": "Normal",
+          "assist_active": false,
+          "reason": "not_caution_can_control",
+          "control_mode": "Cruise"
+        },
+        {
+          "can_time_s": 12.8,
+          "received_state": "Normal",
+          "assist_active": false,
+          "reason": "not_caution_can_control",
+          "control_mode": "Remote"
+        },
+        {
+          "can_time_s": 14.2,
+          "received_state": "Caution",
+          "assist_active": false,
+          "reason": "not_caution_can_control",
+          "control_mode": "Remote"
+        },
+        {
+          "can_time_s": 14.2,
+          "received_state": "Caution",
+          "assist_active": true,
+          "reason": "delayed_caution_existing_drift",
+          "control_mode": "Remote"
+        },
+        {
+          "can_time_s": 17.0,
+          "received_state": "Normal",
+          "assist_active": true,
+          "reason": "delayed_caution_existing_drift",
+          "control_mode": "Remote"
+        },
+        {
+          "can_time_s": 17.8,
+          "received_state": "Normal",
+          "assist_active": false,
+          "reason": "not_caution_can_control",
+          "control_mode": "Remote"
+        },
+        {
+          "can_time_s": 17.8,
+          "received_state": "Normal",
+          "assist_active": false,
+          "reason": "not_caution_can_control",
+          "control_mode": "Cruise"
+        }
+      ],
+      "normal_before_first_caution_no_assist": true
+    },
+    {
+      "scenario": "distraction",
+      "window": [
+        4.0,
+        10.6
+      ],
+      "samples": 68,
+      "peak_center_offset_m": 0.6263338327407837,
+      "final_center_offset_m": 0.0016430020332336426,
+      "final_heading_deg": -0.10662841796875,
+      "min_clearance_m": 0.5342814922332764,
+      "physics_min_clearance_m": 0.5342814922332764,
+      "steering_range": [
+        -0.07358817011117935,
+        0.02666666731238365
+      ],
+      "assist_frames": 34,
+      "normal_recovery_frames": 13,
+      "late_entry_observed": false,
+      "observed_states": [
+        "Caution",
+        "Normal"
+      ],
+      "min_speed_kph": 51.172019958496094,
+      "observed_time_range": [
+        4.0,
+        10.4
+      ],
+      "passed": true,
+      "events": [
+        {
+          "can_time_s": 4.0,
+          "received_state": "Normal",
+          "assist_active": false,
+          "reason": "not_caution_can_control",
+          "control_mode": "Cruise"
+        },
+        {
+          "can_time_s": 4.0,
+          "received_state": "Normal",
+          "assist_active": false,
+          "reason": "scenario_reset",
+          "control_mode": "Remote"
+        },
+        {
+          "can_time_s": 4.2,
+          "received_state": "Normal",
+          "assist_active": false,
+          "reason": "not_caution_can_control",
+          "control_mode": "Remote"
+        },
+        {
+          "can_time_s": 4.4,
+          "received_state": "Caution",
+          "assist_active": false,
+          "reason": "not_caution_can_control",
+          "control_mode": "Remote"
+        },
+        {
+          "can_time_s": 6.2,
+          "received_state": "Caution",
+          "assist_active": true,
+          "reason": "outward_stopping_distance",
+          "control_mode": "Remote"
+        },
+        {
+          "can_time_s": 7.6,
+          "received_state": "Normal",
+          "assist_active": true,
+          "reason": "outward_stopping_distance",
+          "control_mode": "Remote"
+        },
+        {
+          "can_time_s": 9.0,
+          "received_state": "Caution",
+          "assist_active": true,
+          "reason": "outward_stopping_distance",
+          "control_mode": "Remote"
+        },
+        {
+          "can_time_s": 9.6,
+          "received_state": "Caution",
+          "assist_active": false,
+          "reason": "raw_neutral_and_pose_stable",
+          "control_mode": "Remote"
+        },
+        {
+          "can_time_s": 10.0,
+          "received_state": "Normal",
+          "assist_active": false,
+          "reason": "raw_neutral_and_pose_stable",
+          "control_mode": "Remote"
+        },
+        {
+          "can_time_s": 10.2,
+          "received_state": "Normal",
+          "assist_active": false,
+          "reason": "not_caution_can_control",
+          "control_mode": "Remote"
+        },
+        {
+          "can_time_s": 10.4,
+          "received_state": "Normal",
+          "assist_active": false,
+          "reason": "not_caution_can_control",
+          "control_mode": "Cruise"
+        }
+      ],
+      "normal_before_first_caution_no_assist": true
+    }
+  ],
+  "passed": true
+}

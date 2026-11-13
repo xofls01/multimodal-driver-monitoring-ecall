@@ -392,8 +392,11 @@ public class DriverStateWarningUI : MonoBehaviour
             && tcpBridge.IsConnected && command != null && command.can_active
             && vehicle != null && vehicle.EffectiveControlMode == "Remote" && vehicle.IsRemoteCommandFresh;
         CautionLaneAssistController assist = vehicle == null ? null : vehicle.cautionLaneAssist;
-        bool steering = available && (assist != null && assist.GeometryReady
-            ? assist.IsAuthorized && assist.IsActive : command.steer_correction_active);
+        bool actualSteering = !emergencyActive && state != "Danger" && tcpBridge != null
+            && tcpBridge.IsConnected && assist != null && assist.GeometryReady
+            && assist.IsAuthorized && assist.IsActive;
+        bool steering = actualSteering || (available && (assist == null || !assist.GeometryReady)
+            && command.steer_correction_active);
         bool acceleration = available && command.accel_limit_active;
         bool visible = steering || acceleration;
 

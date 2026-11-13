@@ -134,7 +134,7 @@ state danger   # 기존 비상 정차 시연
 졸음 CSV의 Caution 구간은 실제로 조는 시간(3~5초, 8~11초, 13~16초)입니다. 깬 뒤에는 조향을 중립으로만 놓지 않고 반대 조향으로 원래 횡위치에 복귀합니다. 복귀 완료 시점은 각각 7.8초, 12.8초, 17.8초입니다. 이 복귀 경로는 60km/h와 현재 차량 조향 설정을 사용해 계산했으므로 Unity 물리 주행에서의 실제 복귀 오차는 별도로 확인해야 합니다.
 CSV를 수정한 뒤에는 `can caution`을 다시 입력해야 파일을 새로 읽습니다. `can restart`는 이전에 메모리에 읽어둔 내용을 재생합니다.
 
-CAN은 원본 조향·페달·종가속도의 차량 조작 이상만 감시합니다. 네 CSV의 `ground_truth_*`는 판단에 사용하지 않고 Unity 경고·비상 상태도 직접 바꾸지 않습니다. Normal은 이상 기록만, Caution은 경고 UI·소리와 조향/가속 보정, Danger는 기존 비상 정차를 수행합니다. 외부 모델 대신 콘솔 `state caution`/`state danger`로 상태를 지정할 수 있습니다. 과거의 `--can-demo-mode` 옵션과 `can demo on|off` 명령은 없습니다.
+CAN은 원본 조향·페달·종가속도의 차량 조작 이상만 감시합니다. 네 CSV의 `ground_truth_*`는 판단에 사용하지 않고 Unity 경고·비상 상태도 직접 바꾸지 않습니다. Normal에서는 새로운 보정을 시작하지 않고 이상 기록만 수행합니다. Caution은 경고 UI·소리와 조향/가속 보정, Danger는 기존 비상 정차를 수행합니다. `caution`/`distraction`에서 이미 시작한 차선 복귀의 Normal 전환 처리는 아래를 참고하세요. 외부 모델 대신 콘솔 `state caution`/`state danger`로 상태를 지정할 수 있습니다. 과거의 `--can-demo-mode` 옵션과 `can demo on|off` 명령은 없습니다.
 
 재생 완료·중지·TCP 단절 때 CAN 입력을 해제하고 Cruise로 복귀합니다. 외부에서 정한 운전자 상태는 바꾸지 않습니다. Danger가 확정되면 CAN 명령을 차단하고 기존 비상 정차가 제어권을 가집니다.
 
@@ -148,6 +148,10 @@ Caution의 CAN 조향은 Unity `CautionLaneAssistController`가 물리 프레임
 
 복귀 중에는 중앙 오차와 횡속도로 반대 조향을 계산하고, 중앙에 가까워지면 다시 조향을 풀어 전방을 향하게 합니다. 중앙·횡속도·방향이 안정된 상태가 1초 지속되고 원본 조향이 중립 근처(기준 조향각 ±0.45도)에서 0.1초 유지되면 제어권을 반환합니다. 물리적 복귀와 원본 입력 복귀의 타이머를 분리해 다음 졸음까지 계속 개입하지 않도록 했습니다. 조향 최대 입력은 ±0.14, 변화율은 초당 0.8, 횡가속도 목표 제한은 3.5m/s²이며 모두 컴포넌트 설정입니다. Stage 1의 알려진 직선 도로를 사용하는 제어이며 영상 차선 인식이나 경로 계획은 추가하지 않았습니다.
 
+모델 상태가 Normal↔Caution으로 바뀌는 `can caution`/`can distraction`에서는 늦게 도착한 Caution도 현재 차체 위치·횡속도·방향을 기준으로 처리합니다. Caution 진입 시 중앙 오차 0.15m, 횡속도 0.25m/s, 방향 오차 1도 중 하나를 넘으면 추가 이탈을 기다리지 않고 복귀를 시작합니다. 이때 `delayedEntryLookAheadSeconds=0.15`, `delayedEntryPositionGain=1.3`(기존 위치 이득의 배수), `delayedEntrySteeringSlewRate=1.2`를 사용하며 조향 입력·횡가속도 상한은 유지합니다. 이 설정들은 `CautionLaneAssistController`의 `Delayed Caution Entry` 항목에 있습니다.
+
+이 두 시나리오에서는 Caution에서 시작한 복귀 도중 Normal이 와도 중앙·방향 안정과 조향 중립 조건을 만족할 때까지 진행 중인 복귀를 마칩니다. CAN 종료 후 Cruise로 전환되어도 연결이 유지되는 동안 같은 복귀를 마칠 수 있습니다. Normal에서 새로운 복귀를 시작하거나 Caution 경고를 유지하지는 않습니다. 하단 보조 알림은 실제 복귀 중에 표시됩니다. Danger·비상 제어, 수동 제어, 연결 해제, 오래된 Remote 명령, 시나리오 재시작은 이 복귀 유지보다 우선합니다. `danger` 시나리오와 모델 판단은 변경하지 않았습니다.
+
 Unity가 `lane_geometry_ready=true`를 보고하면 Python은 원본 조향 명령을 전달해 중복 보정을 피하고, 실제 적용 조향은 Unity `vehicle_state.steering`에 남습니다. 이전 Unity 스크립트에는 기존 Python 위치·방향 보정만 적용되므로 관련 Unity 스크립트 3개도 동기화해야 합니다. 가속 이상에서는 Unity 실제 속도를 재생 시작 목표 속도(기본 60km/h)와 비교해 가속을 해제하거나 제동합니다. 원본 진단값은 `can_steering`/`can_throttle`/`can_brake`에 남으며 감지 입력으로 Unity 보정값을 사용하지 않습니다. 운전자 최종 상태는 계속 `publish_prediction(shared, label)`로 연결합니다.
 
 오프라인 검증: `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s Unity/python -p 'test_can_integration.py'`
@@ -157,6 +161,8 @@ Unity가 `lane_geometry_ready=true`를 보고하면 Python은 원본 조향 명�
 실제 Unity 검증 결과는 `validation/can_lane_validation.json`, 첫 졸음의 위치·조향 기록은 `validation/can_lane_recovery.png`에 저장했습니다. 검증은 차선 안에 머무르는 것과 함께 실제 0.25m 이상 편향, 양방향 조향, 최종 중앙 오차 0.15m 이하를 요구합니다. 조향을 고정한 채로는 검증을 통과할 수 없습니다.
 
 2026-11-12 Unity 6.3 LTS의 Caution 시험에서 졸음은 0.58~0.62m, 급조향은 0.60m, 전방주시 태만은 0.79m 편향된 뒤 중앙으로 복귀했습니다. 최종 중앙 오차는 모두 4cm 이내였고, 차량 외곽의 최소 차선 여유는 각각 약 0.54m, 0.55m, 0.37m였습니다. 첫 졸음은 7.8초에 개입이 해제된 것도 추가 확인했습니다. 정상에서는 조향 개입이 없었습니다. 발열 제한 때문에 졸음 18초는 구간별로 실행했으며, 중간 연결이 끊긴 연속 실행 시도는 통과 기록에 포함하지 않았습니다.
+
+모델 상태 전환을 적용한 추가 Unity 시험은 `validation/can_model_lane_validation.json`에 저장했습니다. 저장된 실제 D3/A_new 모델 결과를 CAN 시간에 맞춰 재생했고 새 추론은 수행하지 않았습니다. 졸음 3개 구간과 distraction의 주행·복귀 구간 모두 통과했으며, 차량 외곽의 최소 차선 여유는 0.33m 이상, 최종 중앙 오차는 4cm 이내였습니다. 각 Play는 약 14초 후 종료했으므로 전체 시나리오 연속 실행과 임의의 더 긴 모델 지연까지 검증한 결과는 아닙니다.
 
 실제 Unity 측정을 다시 하려면 Python 서버를 끈 상태에서 다음 명령을 실행하고 Unity Play를 누릅니다. `RESULT`가 출력되면 Play를 종료합니다. 이 검증기는 구간 완료와 차선 여유 0.15m 초과를 모두 확인하며 실패하면 종료 코드 1을 반환합니다.
 
