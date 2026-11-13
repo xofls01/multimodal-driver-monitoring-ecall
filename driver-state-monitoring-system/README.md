@@ -1,20 +1,24 @@
 # Driver State Monitoring System
 
-YOLO와 MediaPipe로 눈, 머리, 자세, 손과 물체 정보를 추출하고 지속 시간과 반복으로 Normal / Caution / Danger / Unavailable을 계산한다. 결과 영상과 판단 로그를 저장하고 --unity 옵션으로 현재 판단을 TCP로 전달한다.
+YOLO와 MediaPipe로 영상의 눈, 머리, 자세와 손을 관측하고 ECG/PPG를 같은 시간에 맞춰 분석합니다. 지속 시간과 반복 조건으로 상태를 계산하며 Unity에 현재 판단을 TCP로 전달합니다.
+
+결과는 전체 MP4, Caution/Danger 사진, 경고 구간 MP4와 JSON입니다. 정차 후 사진은 Unity 정차 응답이 확인된 경우만 저장합니다. 생체신호 화면은 BPM 구간을 표시하며 원본 생체 판정 결과는 별도 필드로 보존합니다.
 
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements-lock.txt
-sh run.sh --input /path/to/video.mp4 --neutral-window 0.3 1.3 --output outputs/my_run
+# 별도로 받은 driver-runtime-assets.zip의 경로를 지정합니다.
+python -m zipfile -e /path/to/driver-runtime-assets.zip .
+sh run_multimodal.sh
 ```
 
---neutral-window에는 사용자가 확인한 눈 뜸과 정면 자세 구간을 지정한다. 처음 3초 안에서 유효 표본 8개 이상이 필요하다. 실제 해당 구간을 읽은 뒤 기준을 적용한다. 준비된 프로필은 원본 파일 해시가 일치할 때만 사용할 수 있다.
+원본 영상, 생체신호, 모델 가중치와 생성 결과는 Git에 포함하지 않습니다. 실행에는 별도로 보관한 런타임 자료가 필요합니다. `config/multimodal/system_pairs.json`에서 입력을 지정합니다.
 
-기본 실행은 prototype 모드다. 눈 감김이 관측되면 경고 전에는 Normal에서 시간을 확인하고, 같은 큰 자세 변화가 경고 후 3초 더 지속되면 시험용 정차를 요청한다. 전체 판단이 문헌으로 검증된 것은 아니다. [현재 구현과 문헌 반영 범위](docs/EYE_CLOSURE_STATE.md)에 구분했다.
+Unity 송신: `sh run_multimodal.sh --only E4 --unity`
 
-Unity 수신 설정과 C# 코드는 [integration/UNITY_INTEGRATION.md](integration/UNITY_INTEGRATION.md)에 있다. 실제 Unity Editor의 차량 물리 동작은 이번 Python 검증 범위에 포함하지 않았다.
+업로드 파일 묶음: `python scripts/export_incident_media.py --output outputs/share_media`
 
-원본 영상, 생성 영상과 로그, 가상환경은 저장소에 포함하지 않는다. 사전학습 가중치 두 개와 버전을 고정한 의존성 파일을 포함한다. 실행 결과는 outputs에 생성된다.
+[출력 형식](docs/MODEL_OUTPUT.md) / [Unity 연결](integration/UNITY_INTEGRATION.md) / [검증 범위](docs/SYSTEM_RUNTIME.md)
 
-휴대전화 후보별 확인과 확대 재검증을 추가했다. [수정과 검증](docs/PHONE_FALSE_POSITIVES.md)에 기록했다.
+현재는 녹화 파일로 동작을 확인한 프로토타입입니다. 실제 고개 각도와 버튼 입력, 장비 상태 확인은 추가 연결이 필요합니다. Unity Editor의 실제 차량 동작은 검증하지 않았습니다.

@@ -81,6 +81,8 @@ def raw_record(raw: RawFeatures) -> dict[str, Any]:
         "face_readable": raw.face_readable,
         "eyes_readable": raw.eyes_readable,
         "pose_readable": raw.pose_readable,
+        "observation_quality": raw.observation_quality,
+        "face_box":raw.face_box,
         "ear_left": raw.ear_left,
         "ear_right": raw.ear_right,
         "mar": raw.mar,

@@ -38,6 +38,11 @@ public class VehicleStatePacket
     public bool ecall;
     public string driver_state;
     public string emergency_phase;
+    public bool driver_response_input_connected;
+    public string clip_id;
+    public string session_id;
+    public double source_timestamp;
+    public bool has_source_timestamp;
 }
 
 [Serializable]
@@ -61,6 +66,7 @@ public class DriverFeatureReadiness
 [Serializable]
 public class VehicleControlPacket
 {
+    public MonitoringOutputPacket monitoring;
     public string type;
     public long sequence;
     public float throttle;
@@ -74,6 +80,13 @@ public class VehicleControlPacket
     // Optional fields from the vision sender. Legacy control packets still work.
     public string vision_state;
     public bool vision_available = true;
+    // Optional multimodal replay fields. Camera coverage remains separate from fusion coverage.
+    public string pipeline;
+    public string fusion_state;
+    public bool fusion_available;
+    public string bio_state;
+    public bool bio_available;
+    public bool synthetic_biosignal;
     public string clip_id;
     public string warning_request_id;
     public bool stop_requested;
@@ -98,6 +111,16 @@ public class DriverWarningAcknowledgement
     public double unity_display_time;
 }
 
+[Serializable]
+public class DriverResponseEvent
+{
+    public string type = "driver_response";
+    public string clip_id;
+    public string warning_request_id;
+    public string event_id;
+    public string action;
+}
+
 public class UnityTcpVehicleBridge : MonoBehaviour
 {
     [Header("Python TCP Server")]
@@ -113,6 +136,8 @@ public class UnityTcpVehicleBridge : MonoBehaviour
     public bool enableRemoteModeOnCommand = true;
     [Header("Vision Freshness")]
     public float predictionTimeoutSeconds = 1f;
+    [Header("Explicit Driver Response (enable after wiring UI buttons)")]
+    public bool driverResponseInputEnabled = false;
 
     public bool IsConnected { get; private set; }
     public string ConnectionStatus { get; private set; } = "Stopped";
@@ -193,7 +218,15 @@ public class UnityTcpVehicleBridge : MonoBehaviour
             driver_state = CurrentDriverState,
             emergency_phase = emergencyController == null
                 ? "Unavailable"
-                : emergencyController.Phase.ToString()
+                : emergencyController.Phase.ToString(),
+            driver_response_input_connected = driverResponseInputEnabled,
+            clip_id = LatestCommand == null ? "" : LatestCommand.clip_id,
+            session_id = LatestCommand == null || LatestCommand.monitoring == null
+                ? "" : LatestCommand.monitoring.session_id,
+            has_source_timestamp = LatestCommand != null && LatestCommand.monitoring != null
+                && LatestCommand.monitoring.is_current,
+            source_timestamp = LatestCommand == null || LatestCommand.monitoring == null
+                ? 0.0 : LatestCommand.monitoring.source_time_seconds
         };
 
         return JsonUtility.ToJson(packet);
@@ -227,8 +260,11 @@ public class UnityTcpVehicleBridge : MonoBehaviour
             {
                 string driverState = command.driver_state.Trim();
                 bool hasVisionAvailability = json.IndexOf("\"vision_available\"", StringComparison.Ordinal) >= 0;
-                if ((hasVisionAvailability && !command.vision_available)
-                    || string.Equals(command.vision_state, "unavailable", StringComparison.OrdinalIgnoreCase)
+                bool hasFusionAvailability = json.IndexOf("\"fusion_available\"", StringComparison.Ordinal) >= 0;
+                bool observationUnavailable = hasFusionAvailability ? !command.fusion_available :
+                    ((hasVisionAvailability && !command.vision_available)
+                    || string.Equals(command.vision_state, "unavailable", StringComparison.OrdinalIgnoreCase));
+                if (observationUnavailable
                     || string.Equals(driverState, "Unavailable", StringComparison.OrdinalIgnoreCase))
                 {
                     CurrentDriverState = "Unavailable";
@@ -366,7 +402,10 @@ public class UnityTcpVehicleBridge : MonoBehaviour
     public void ReportDisplayedWarning()
     {
         VehicleControlPacket packet = LatestCommand;
-        if (!IsConnected || packet == null || !packet.vision_available
+        bool observationAvailable = packet != null &&
+            (!string.IsNullOrEmpty(packet.pipeline) && packet.pipeline.StartsWith("multimodal", StringComparison.Ordinal)
+                ? packet.fusion_available : packet.vision_available);
+        if (!IsConnected || !observationAvailable
             || CurrentDriverState != "Caution" || string.IsNullOrEmpty(packet.warning_request_id))
         {
             return;
@@ -377,6 +416,24 @@ public class UnityTcpVehicleBridge : MonoBehaviour
             clip_id = packet.clip_id,
             prediction_sequence = packet.prediction_sequence,
             unity_display_time = Time.realtimeSinceStartupAsDouble
+        }));
+    }
+
+    // Bind these to real UI button presses. They report events; they do not cancel stopping.
+    public void ReportDriverAcknowledgement() { ReportDriverResponse("acknowledge"); }
+    public void ReportDriverCancelAttempt() { ReportDriverResponse("cancel_attempt"); }
+
+    private void ReportDriverResponse(string action)
+    {
+        VehicleControlPacket packet = LatestCommand;
+        if (!driverResponseInputEnabled || !IsConnected || packet == null
+            || string.IsNullOrEmpty(packet.warning_request_id)) return;
+        outgoingLines.Enqueue(JsonUtility.ToJson(new DriverResponseEvent
+        {
+            clip_id = packet.clip_id,
+            warning_request_id = packet.warning_request_id,
+            event_id = Guid.NewGuid().ToString("N"),
+            action = action
         }));
     }
 

@@ -1,0 +1,57 @@
+{
+  "schema": "multimodal_replay_pairs_v1",
+  "models": {
+    "ecg": "models/biosignal/hr_classifier_ft.pt",
+    "ppg_encoder": "models/biosignal/papagei_s.pt",
+    "ppg_head": "models/biosignal/ppg_head_ft.pt"
+  },
+  "pairs": [
+    {
+      "id": "N",
+      "video": "data/source_videos/N_recorded.mp4",
+      "source_sha256": "0c55e2ac3bd43a621a6dc57619083d27664446ea5cb0196da3f753bf3e6a1118",
+      "biosignal_folder": "data/biosignals/N",
+      "bio_offset_seconds": 0.0,
+      "sync_basis": "measured_resampled_pi_clock",
+      "vision_records": "outputs/vision_N/frame_records/N_recorded.jsonl",
+      "vision_video": "outputs/vision_N/annotated_videos/N_recorded.mp4"
+    },
+    {
+      "id": "D3",
+      "video": "data/source_videos/D3.mp4",
+      "source_sha256": "7cab5adb48f98375ff4d14fa1f66381a26e4e690fa59ee564373dd7b1dfdc84e",
+      "biosignal_folder": "data/biosignals/D3",
+      "bio_offset_seconds": 0.0,
+      "sync_basis": "synthetic_clip_clock",
+      "vision_records": "data/vision_cache/D3.jsonl",
+      "vision_video": "data/vision_cache/D3.mp4"
+    },
+    {
+      "id": "E4",
+      "video": "data/source_videos/E4.mp4",
+      "source_sha256": "cf0748a5eae0de866b1bfe9f1ab8233f531d7b68e5c4c960d4f1d8d000eb980e",
+      "biosignal_folder": "data/biosignals/E4",
+      "bio_offset_seconds": 0.0,
+      "sync_basis": "synthetic_clip_clock",
+      "vision_records": "data/vision_cache/E4.jsonl",
+      "vision_video": "data/vision_cache/E4.mp4"
+    },
+    {
+      "id": "A_new",
+      "video": "data/source_videos/A_new.mp4",
+      "source_sha256": "6fc9ac627a1d78049c4a3f67792e244ff4fe26612b28fd1d84d280cc1906344e",
+      "biosignal_folder": "data/biosignals/TheNewA",
+      "bio_offset_seconds": 0.0,
+      "sync_basis": "synthetic_clip_clock",
+      "vision_records": "data/vision_cache/A_new.jsonl",
+      "vision_video": "data/vision_cache/A_new.mp4"
+    }
+  ],
+  "model_selection": {
+    "basis": "Defaults in supplied biosignal_camera_live_bpm.py arguments --bio-model, --ppg-encoder, --ppg-head",
+    "ecg_default": "hr_classifier_ft.pt",
+    "ppg_encoder_default": "papagei_s.pt",
+    "ppg_head_default": "ppg_head_ft.pt",
+    "retraining_performed": false
+  }
+}

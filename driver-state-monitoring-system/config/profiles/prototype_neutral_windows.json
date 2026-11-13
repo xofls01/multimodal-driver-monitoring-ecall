@@ -59,6 +59,16 @@
       ],
       "reviewed": true,
       "provenance": "Visual review of The new A.mp4 at 0.30, 0.60, 0.90, 1.20 and 1.50 seconds: upright driving position and visibly open eyes before phone viewing. Use 0.30-1.30 seconds causally; require at least 8 valid observations. This is a neutral reference, not eye-classification validation."
+    },
+    {
+      "schema": "reviewed_neutral_window_v1",
+      "source_sha256": "0c55e2ac3bd43a621a6dc57619083d27664446ea5cb0196da3f753bf3e6a1118",
+      "neutral_window": [
+        1.5,
+        2.5
+      ],
+      "reviewed": true,
+      "provenance": "Visual inspection of N sensor-camera recording at 1.5,2.0,2.5s: seated with open eyes; relative neutral reference, not calibrated road gaze. Camera rows0:720 retained, existing ECG overlay removed."
     }
   ]
 }

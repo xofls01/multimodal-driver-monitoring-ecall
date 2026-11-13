@@ -91,7 +91,8 @@ class VisionModels:
         rgb.flags.writeable = False
         result = self.face_landmarker.process(rgb)
         if not result.multi_face_landmarks:
-            return {"readable": False, "eyes_readable": False, "reason": "face_not_detected"}
+            return {"readable": False, "eyes_readable": False, "reason": "face_not_detected",
+                    "quality": {"face_detected":False,"detection_confidence":None}}
         landmarks = result.multi_face_landmarks[0].landmark
         points = [(item.x * width, item.y * height, item.z * width) for item in landmarks]
         landmark_xy = {index: (float(point[0]), float(point[1])) for index, point in enumerate(points)}
@@ -104,6 +105,12 @@ class VisionModels:
             min(height - 1, int(max(ys))),
         )
         face_width = box[2] - box[0]
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        face_roi = gray[box[1]:box[3],box[0]:box[2]]
+        quality = dict(face_detected=True,detection_confidence=None,
+            face_width_pixels=face_width,face_height_pixels=box[3]-box[1],
+            mean_luminance=float(np.mean(face_roi)) if face_roi.size else None,
+            contrast_std=float(np.std(face_roi)) if face_roi.size else None)
         if face_width < int(self.config["face_min_width_pixels"]):
             return {
                 "readable": False,
@@ -111,8 +118,10 @@ class VisionModels:
                 "box": box,
                 "landmarks": landmark_xy,
                 "reason": "face_too_small",
+                "quality": quality,
             }
         interocular = float(np.linalg.norm(np.asarray(points[33][:2]) - np.asarray(points[263][:2])))
+        quality['interocular_distance_pixels']=interocular
         eyes_readable = interocular >= float(self.config["interocular_min_pixels"])
         eye_reason = None
         if self._eye_measurement_disabled:
@@ -148,6 +157,7 @@ class VisionModels:
             "box": box,
             "landmarks": landmark_xy,
             "reason": eye_reason if pose is not None else "head_pose_failed",
+            "quality": quality,
         }
 
     def _extract_pose(self, frame: np.ndarray) -> dict[str, Any]:
@@ -180,6 +190,7 @@ class VisionModels:
             "box": tuple(int(value) for value in boxes[index]),
             "torso_angle": angle,
             "head_drop_ratio": drop,
+            "detection_confidence":float(confidences[index]),
         }
 
     def _phone_predictions(
@@ -608,6 +619,10 @@ class VisionModels:
             image_height=height,
             image_width=width,
             gaze_observation=self.gaze_estimator.predict(frame, face),
+            observation_quality=dict(**face.get('quality',{}),
+                pose_person_detection_confidence=pose.get('detection_confidence'),
+                pose_confidence_available=pose.get('detection_confidence') is not None,
+                pose_keypoint_confidences={str(i):value[2] for i,value in keypoints.items()}),
         )
 
     def extract_rppg_only(self, frame: np.ndarray, timestamp: float) -> RawFeatures:

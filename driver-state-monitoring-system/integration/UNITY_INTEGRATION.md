@@ -42,3 +42,22 @@ Normal은 기존 주행 제어 유지, Caution은 경고 UI와 소리, Danger는
 Python 모의 TCP 수신기를 이용해 Normal, Caution, Danger와 Unavailable의 전달 및 현재 분석에서 publish() 호출을 테스트했다. 실제 영상에서도 현재 판단의 전송을 확인했다. Unity Editor를 직접 실행하거나 C#을 컴파일하지 않았으며, 실제 UI와 소리, 차량 감속과 갓길 정차, e-Call은 검증하지 않았다.
 
 실제 Unity 확인은 씬 참조와 두 파일 교체 후 수행한다. 각 상태의 동작과 경고 ACK, Danger 이후 Normal/Unavailable 및 통신 끊김에서도 정차가 유지되는지 확인한다. e-Call 서버 전송 완료를 이 코드만으로 주장하지 않는다.
+
+
+## 최종 관측 출력과 운전자 응답
+
+`VehicleControlPacket.monitoring`에 `MonitoringOutputPacket.cs` 형식의 관측 출력이 추가됐다. Danger 영상 시각, 지표, 반응 기록, 관측 품질을 전달한다. 상태 문자열과 세부 필드 설명은 `../docs/MODEL_OUTPUT.md`를 따른다.
+
+Unity 프로젝트에 `UnityTcpVehicleBridge.cs`와 `MonitoringOutputPacket.cs`를 함께 반영한다. 기존 조향과 감속 제어기는 변경하지 않았다. 명시적 응답 버튼을 연결했다면 Bridge의 `driverResponseInputEnabled`를 켜고, 버튼 OnClick에서 `ReportDriverAcknowledgement()` 또는 `ReportDriverCancelAttempt()`를 호출한다. 이 함수는 응답을 보고할 뿐 정차를 취소하지 않는다.
+
+기존 `ReportDisplayedWarning()`은 경고 UI가 렌더링됐다는 확인이다. 운전자 응답으로 사용하지 않는다. `JsonUtility`에서 null 값은 기본 0 또는 false가 될 수 있으므로 observed/calibrated/connected 플래그 확인이 필요하다.
+
+추가된 C# 코드의 Unity Editor 컴파일과 버튼 동작은 직접 실행하지 않았다. Python 테스트와 TCP 모의 클라이언트에서 응답 프로토콜을 확인했다.
+
+## 정차 완료 사진을 위한 응답
+
+새 Bridge는 `vehicle_state`에 현재 명령의 `clip_id`, `monitoring.session_id`, `monitoring.source_time_seconds`를 각각 `clip_id`, `session_id`, `source_timestamp`로 돌려준다. 현재 판단이면 `has_source_timestamp=true`다. Unity의 자체 실행 시간인 `timestamp`를 영상 시각으로 사용하지 않는다.
+
+Python은 연결과 수신 신선도, 영상 및 세션 대응, 앞선 정차 요청, `Stopped` 단계와 속도 0~0.1 kph를 모두 확인한 경우만 `vehicle_confirmation.stop_confirmed=true`로 기록한다. 사진은 이 응답을 받은 영상 프레임에서 저장한다. 다른 영상이나 재실행 전의 응답, 시간이 대응하지 않는 구버전 응답은 사용하지 않는다.
+
+이 프로토콜은 Python TCP 모의 클라이언트로 검사한다. 실제 Unity Editor 실행, 차량 정차, 갓길 도착이나 e-Call 완료는 검증하지 않았다. 현재 제공한 네 결과 영상에는 정차 완료 응답이 없으며 정차 후 사진도 없다.

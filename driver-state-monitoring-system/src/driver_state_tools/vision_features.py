@@ -178,6 +178,7 @@ class RawFeatures:
     image_height: int = 0
     image_width: int = 0
     gaze_observation: dict[str, Any] = field(default_factory=dict)
+    observation_quality: dict[str, Any] = field(default_factory=dict)
 
     @property
     def ear(self) -> float | None:

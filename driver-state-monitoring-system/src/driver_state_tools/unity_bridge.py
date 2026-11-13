@@ -56,6 +56,10 @@ def vehicle_control_packet(decision: Decision, sequence: int, *, clip_id: str = 
     packet["attention_status"] = decision.metadata.get("attention_status") if available else "unavailable"
     packet["pending_events"] = decision.metadata.get("pending_events", []) if available else []
     packet["stop_requested"] = bool(available and decision.metadata.get("stop_requested", decision.state is DriverState.DANGER))
+    from .multimodal_fusion import add_multimodal_packet
+    packet=add_multimodal_packet(packet, decision, age, stale_after)
+    from .monitoring_output import output_for_packet
+    packet['monitoring']=output_for_packet(decision.metadata.get('monitoring_output'),age,stale_after)
     return packet
 
 
@@ -165,7 +169,10 @@ class UnityStateServer:
         self._sent_revision = -1
         self._sent_condition = threading.Condition(self._lock)
         self._latest_vehicle_state = None
+        self._latest_vehicle_state_received_at = None
         self._warning_events = deque(maxlen=128)
+        self._driver_response_events = deque(maxlen=128)
+        self._response_event_ids = deque(maxlen=256)
         self._warning_requests: dict[str, str] = {}
         self._critical_pending = None
         self._listener = None
@@ -197,11 +204,72 @@ class UnityStateServer:
             self._warning_events.clear()
             return result
 
+    @property
+    def driver_response_input_connected(self):
+        with self._lock:
+            return bool(self.connected.is_set() and self._latest_vehicle_state
+                        and self._latest_vehicle_state.get('driver_response_input_connected') is True)
+
+    def driver_response_events(self,clip_id):
+        with self._lock:
+            result=[e for e in self._driver_response_events if e['clip_id']==clip_id]
+            self._driver_response_events.clear()
+            return result
+
+    def vehicle_confirmation(self,clip_id,source_time,stop_request_observed=False,*,session_id=None):
+        with self._lock:
+            payload=copy.deepcopy(self._latest_vehicle_state or {})
+            received=self._latest_vehicle_state_received_at
+        stamp=payload.get('source_timestamp');speed=payload.get('speed_kph')
+        valid_time=isinstance(stamp,(int,float)) and not isinstance(stamp,bool) and math.isfinite(stamp)
+        mapped=bool(payload.get('has_source_timestamp') is True and valid_time
+                    and 0<=source_time-stamp<=self.stale_after)
+        fresh=bool(self.connected.is_set() and received is not None and 0<=self.clock()-received<=self.stale_after)
+        matches=payload.get('clip_id')==clip_id
+        session_matches=bool(session_id and payload.get('session_id')==session_id)
+        feedback_age=max(0.,self.clock()-received) if received is not None else None
+        valid_speed=isinstance(speed,(int,float)) and not isinstance(speed,bool) and math.isfinite(speed)
+        # Same 0.1 kph standstill tolerance used by the existing Unity reset guard.
+        stopped=bool(stop_request_observed and fresh and mapped and matches and session_matches and
+                     payload.get('emergency_phase')=='Stopped' and valid_speed and 0<=speed<=.1)
+        return dict(stop_confirmed=stopped,status='confirmed_stopped' if stopped else
+                    'not_received' if not payload else 'not_confirmed',
+                    stop_request_observed=bool(stop_request_observed),receipt_fresh=fresh,
+                    source_time_matches=mapped,clip_matches=matches,session_matches=session_matches,
+                    feedback_age_seconds=feedback_age,
+                    feedback_source_seconds=stamp if valid_time else None,
+                    speed_kph=speed if valid_speed else None,emergency_phase=payload.get('emergency_phase'),
+                    confirmation_source='unity_vehicle_feedback')
+
+    def accept_driver_response(self,message):
+        from .monitoring_output import utc_now
+        request=message.get('warning_request_id');clip=message.get('clip_id');event_id=message.get('event_id')
+        with self._lock:
+            valid=(message.get('type')=='driver_response' and isinstance(request,str) and isinstance(clip,str)
+                and isinstance(event_id,str) and 0<len(event_id)<=128
+                and message.get('action') in ('acknowledge','cancel_attempt')
+                and clip==self._clip_id and self._warning_requests.get(request)==clip
+                and self._decision.metadata.get('warning_request_id')==request
+                and self._published_at is not None and self.clock()-self._published_at<=self.stale_after
+                and (clip,event_id) not in self._response_event_ids)
+            if valid:
+                self._response_event_ids.append((clip,event_id))
+                self._driver_response_events.append(dict(type='driver_response',clip_id=clip,
+                    warning_request_id=request,event_id=event_id,action=message['action'],source='unity_button',
+                    received_at_utc=utc_now(),received_monotonic=self.clock()))
+        return bool(valid)
+
     def mark_unavailable(self, reason: str) -> None:
         with self._lock:
             if reason == "new_video_session":
                 self._critical_pending = None
-            self._decision = Decision(self._decision.timestamp, DriverState.UNAVAILABLE, [reason])
+            metadata={}
+            report=self._decision.metadata.get('monitoring_output')
+            if report is not None and reason!='new_video_session':
+                from .monitoring_output import output_for_packet
+                metadata['monitoring_output']=output_for_packet(report,self.stale_after+1.,self.stale_after)
+                metadata['monitoring_output']['unavailable_reason']=reason
+            self._decision = Decision(self._decision.timestamp, DriverState.UNAVAILABLE, [reason],{},metadata)
             self._published_at = self.clock()
             self._revision += 1
 
@@ -293,6 +361,7 @@ class UnityStateServer:
                             if isinstance(message, dict) and message.get("type") == "vehicle_state":
                                 with self._lock:
                                     self._latest_vehicle_state = message
+                                    self._latest_vehicle_state_received_at = self.clock()
                                 self._log("vehicle_state", payload=message)
                             elif isinstance(message, dict) and message.get("type") == "driver_warning_ack":
                                 request = message.get("warning_request_id")
@@ -305,6 +374,9 @@ class UnityStateServer:
                                         self._warning_events.append(dict(warning_request_id=request, clip_id=clip,
                                                                          received_monotonic=self.clock(), source="unity_ui"))
                                 self._log("warning_ack" if valid else "invalid_warning_ack", payload=message)
+                            elif isinstance(message,dict) and message.get('type')=='driver_response':
+                                valid=self.accept_driver_response(message)
+                                self._log('driver_response' if valid else 'invalid_driver_response',payload=message)
                     if client is not None and self.clock() >= next_send:
                         packet = self.next_packet()
                         client.sendall((json.dumps(packet, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8"))

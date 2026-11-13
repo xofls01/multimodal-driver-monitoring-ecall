@@ -1,7 +1,11 @@
-# Model weights
+# Model files
 
-기존 사전학습 가중치 yolo26n.pt와 yolo26n-pose.pt를 동일한 SHA256으로 보존했다. 추가 학습하지 않았다. 모델 체크섬은 manifest.json에 있다.
+코드 저장소에는 가중치 파일 대신 SHA256 목록을 둡니다. 별도 보관한 driver-runtime-assets.zip을 프로젝트 루트에 풀면 정확히 사용한 가중치가 복원됩니다.
 
-YOLO Detection은 휴대전화, 음료 용기, 식기, 음식과 책 후보를, Pose는 신체 키포인트를 추출한다. 얼굴, 눈, 입과 손은 고정한 MediaPipe 패키지의 모델을 사용한다. 의료 상태 분류 모델이 아니다.
+- yolo26n.pt: 사전학습 물체 검출 모델
+- yolo26n-pose.pt: 사전학습 자세 모델
+- biosignal/hr_classifier_ft.pt: 전달받은 ECG 모델
+- biosignal/papagei_s.pt: 전달받은 PPG 인코더
+- biosignal/ppg_head_ft.pt: 전달받은 PPG 분류기
 
-문헌 R4의 시선 모델은 미연결이다. 가중치와 전처리, 클래스 순서를 검토하기 전 기존 YOLO나 얼굴 상대 지표를 그 모델의 결과로 사용하지 않는다. 자세한 조건은 docs/LITERATURE_MAPPING.md에 있다.
+이 통합 작업에서 새로 학습하지 않았습니다. 미사용 기본 ECG와 PPG 가중치는 실행 묶음에서 제외했습니다. 전체 원본 가중치는 로컬 원본 프로젝트에 보존했습니다.

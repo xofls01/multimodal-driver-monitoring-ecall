@@ -1,0 +1,15 @@
+{
+  "schema": "monitoring_output_unity_adapter.v1",
+  "csharp_compiled": false,
+  "unity_editor_executed": false,
+  "actuator_controllers_changed": false,
+  "driver_response_buttons_wired": false,
+  "response_events_do_not_cancel_stopping": true,
+  "files": {
+    "integration/Unity/Assets/Stage1BasicVehicle/Scripts/UnityTcpVehicleBridge.cs": "92fb61b3a9c215a7cceabaafdaf364e856c6f8580483a499a4d2d9140a511b68",
+    "integration/Unity/Assets/Stage1BasicVehicle/Scripts/MonitoringOutputPacket.cs": "a0b1ab60b988a40307500244f3dd60d65320d1d0b7c0ea09412f0c97236b714c",
+    "integration/Unity/Assets/Stage1BasicVehicle/Scripts/DriverStateWarningUI.cs": "e66496c2464614be531c4bd467f9012bc08e50b76f1ea2c81f49a0228a0824aa"
+  },
+  "stop_feedback_requires_matching_clip_and_session": true,
+  "real_unity_stop_confirmations": 0
+}

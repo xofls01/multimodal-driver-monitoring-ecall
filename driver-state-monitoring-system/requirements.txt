@@ -10,3 +10,6 @@ torchvision==0.29.1
 imageio-ffmpeg==0.6.0
 
 Pillow==12.3.0
+
+# Sensor-signal analysis, no training dependencies
+scipy==1.17.1
