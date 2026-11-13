@@ -27,6 +27,13 @@ public class CautionLaneAssistController : MonoBehaviour
     public float releaseRawAngleDegrees = 0.45f;
     public float releaseRawHoldSeconds = 0.1f;
 
+    [Header("Delayed Caution Entry (Caution / Distraction)")]
+    public float delayedEntryOffsetMeters = 0.15f;
+    public float delayedEntryLateralSpeed = 0.25f;
+    public float delayedEntryLookAheadSeconds = 0.15f;
+    public float delayedEntryPositionGain = 1.3f;
+    public float delayedEntrySteeringSlewRate = 1.2f;
+
     public bool IsActive { get; private set; }
     public bool IsAuthorized { get; private set; }
     public bool GeometryReady { get; private set; }
@@ -37,6 +44,7 @@ public class CautionLaneAssistController : MonoBehaviour
     public float PredictedClearance { get; private set; }
     public float AppliedSteering { get; private set; }
     public string Reason { get; private set; } = "idle";
+    public bool CanCompleteRecovery => IsActive && UsesIntermittentCautionScenario();
 
     private Rigidbody body;
     private float halfWidth;
@@ -45,6 +53,7 @@ public class CautionLaneAssistController : MonoBehaviour
     private float neutralSince = -1f;
     private float poseStableSince = -1f;
     private bool previouslyAuthorized;
+    private bool delayedEntryRecovery;
     private Vector3 roadRight;
     private Vector3 roadForward;
 
@@ -99,6 +108,12 @@ public class CautionLaneAssistController : MonoBehaviour
     {
         return Mathf.Abs(axis.x) * extent.x + Mathf.Abs(axis.y) * extent.y
             + Mathf.Abs(axis.z) * extent.z;
+    }
+
+    private bool UsesIntermittentCautionScenario()
+    {
+        VehicleControlPacket command = bridge == null ? null : bridge.LatestCommand;
+        return command != null && (command.can_scenario == "caution" || command.can_scenario == "distraction");
     }
 
     private float Clearance(float lateralPosition, float heading)
@@ -158,6 +173,7 @@ public class CautionLaneAssistController : MonoBehaviour
             AppliedSteering = requested;
             return requested;
         }
+        bool cautionJustStarted = !previouslyAuthorized;
         MinimumClearance = previouslyAuthorized
             ? Mathf.Min(MinimumClearance, CurrentClearance) : CurrentClearance;
         previouslyAuthorized = true;
@@ -173,15 +189,23 @@ public class CautionLaneAssistController : MonoBehaviour
         bool actualDeparture = movingOutward && Mathf.Abs(centerError) >= departureOffsetMeters;
         bool recoveryMustStart = movingOutward
             && CurrentClearance <= stoppingDistance + interventionClearanceMeters;
+        // A model warning can arrive after drift has already developed. Start
+        // from the measured pose immediately, including an existing inward drift.
+        bool delayedCaution = cautionJustStarted && UsesIntermittentCautionScenario()
+            && (Mathf.Abs(centerError) >= delayedEntryOffsetMeters
+                || Mathf.Abs(lateralSpeed) >= delayedEntryLateralSpeed
+                || Mathf.Abs(heading) >= 1f * Mathf.Deg2Rad);
         // A hypothetical raw-CAN curve alone must not preempt all lateral motion.
         // Detect a measured departure, or intervene earlier if the remaining
         // vehicle-envelope clearance cannot absorb the outward stopping distance.
-        if (!IsActive && (actualDeparture || recoveryMustStart))
+        if (!IsActive && (delayedCaution || actualDeparture || recoveryMustStart))
         {
             IsActive = true;
+            delayedEntryRecovery = delayedCaution;
             neutralSince = -1f;
             AppliedSteering = vehicle.CurrentSteeringInput;
-            Reason = recoveryMustStart ? "outward_stopping_distance"
+            Reason = delayedCaution ? "delayed_caution_existing_drift"
+                : recoveryMustStart ? "outward_stopping_distance"
                 : "measured_lateral_departure";
         }
         if (!IsActive)
@@ -189,14 +213,18 @@ public class CautionLaneAssistController : MonoBehaviour
             AppliedSteering = requested;
             return requested;
         }
-        float desiredAcceleration = Mathf.Clamp(-positionGain * centerError
+        float controlError = delayedEntryRecovery
+            ? centerError + lateralSpeed * delayedEntryLookAheadSeconds : centerError;
+        float controlGain = positionGain * (delayedEntryRecovery ? delayedEntryPositionGain : 1f);
+        float desiredAcceleration = Mathf.Clamp(-controlGain * controlError
             - lateralVelocityGain * lateralSpeed,
             -maximumLateralAcceleration, maximumLateralAcceleration);
         float wheelAngle = Mathf.Atan(desiredAcceleration * wheelbase
             / Mathf.Max(9f, speed * speed)) * Mathf.Rad2Deg;
         float target = Mathf.Clamp(wheelAngle / (vehicle.maxSteeringAngle * speedFactor),
             -steeringInputLimit, steeringInputLimit);
-        AppliedSteering = Mathf.MoveTowards(AppliedSteering, target, steeringSlewRate * dt);
+        float slewRate = delayedEntryRecovery ? delayedEntrySteeringSlewRate : steeringSlewRate;
+        AppliedSteering = Mathf.MoveTowards(AppliedSteering, target, slewRate * dt);
         // Track stable physical recovery separately from a near-neutral input.
         // Once recovered, hand control back at neutral instead of suppressing
         // the next independent drift while the raw detector is still latched.
@@ -227,6 +255,7 @@ public class CautionLaneAssistController : MonoBehaviour
     private void ResetAssist(string reason)
     {
         IsActive = false;
+        delayedEntryRecovery = false;
         neutralSince = -1f;
         poseStableSince = -1f;
         Reason = reason;

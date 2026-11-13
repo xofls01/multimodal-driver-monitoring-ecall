@@ -159,8 +159,16 @@ public class BasicWheelVehicleController : MonoBehaviour
                 && remoteCommandFresh && bridge != null
                 && bridge.CurrentDriverState == "Caution"
                 && bridge.LatestCommand != null && bridge.LatestCommand.can_active;
+            // For the two intermittent-warning demos, complete an already
+            // started recovery before handing the wheel back. Normal alone
+            // never starts an intervention; Danger still owns all controls.
+            bool completeRecovery = !useEmergencyControl && cautionLaneAssist.CanCompleteRecovery
+                && bridge != null && bridge.IsConnected && bridge.LatestCommand != null
+                && (bridge.CurrentDriverState == "Normal" || bridge.CurrentDriverState == "Caution")
+                && ((useRemoteControl && remoteCommandFresh && bridge.LatestCommand.can_active)
+                    || (useCruiseControl && !bridge.LatestCommand.can_active));
             requestedSteering = cautionLaneAssist.FilterSteering(
-                requestedSteering, CurrentSpeedKph, Time.fixedDeltaTime, laneAssistAuthorized);
+                requestedSteering, CurrentSpeedKph, Time.fixedDeltaTime, laneAssistAuthorized || completeRecovery);
         }
 
         CurrentSteeringInput = Mathf.MoveTowards(

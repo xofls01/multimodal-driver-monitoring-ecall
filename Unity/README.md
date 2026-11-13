@@ -6,7 +6,8 @@
 - 100m 도로 세그먼트 4개의 재활용식 직선 도로
 - Python의 `Normal/Caution/Danger` 상태 및 명시적 원격 운전 명령
 - 별도 스레드에서 실행되는 caution/danger 시나리오
-- Caution 진입 시 확인 버튼 없는 주의 메시지와 1회 경고음
+- Caution 동안 중앙의 주황색 주의 카드와 0.5초 간격 반복 경고음
+- Danger 동안 중앙의 빨간 테두리·반투명 배경 알림, 실제 보정 중 하단의 청록색 보조 알림
 - 밝은 웜 화이트 차체와 전면 다크/후면 레드 램프 베이스
 - 램프 베이스 위 전·후방 좌우 주황색 비상등 4개의 실시간 점멸 표시
 - Danger 진입 시 비상 정차 상태 머신, 비상 UI, 비상등 점멸, e-Call 상태
@@ -133,7 +134,7 @@ state danger   # 기존 비상 정차 시연
 졸음 CSV의 Caution 구간은 실제로 조는 시간(3~5초, 8~11초, 13~16초)입니다. 깬 뒤에는 조향을 중립으로만 놓지 않고 반대 조향으로 원래 횡위치에 복귀합니다. 복귀 완료 시점은 각각 7.8초, 12.8초, 17.8초입니다. 이 복귀 경로는 60km/h와 현재 차량 조향 설정을 사용해 계산했으므로 Unity 물리 주행에서의 실제 복귀 오차는 별도로 확인해야 합니다.
 CSV를 수정한 뒤에는 `can caution`을 다시 입력해야 파일을 새로 읽습니다. `can restart`는 이전에 메모리에 읽어둔 내용을 재생합니다.
 
-CAN은 원본 조향·페달·종가속도의 차량 조작 이상만 감시합니다. 네 CSV의 `ground_truth_*`는 판단에 사용하지 않고 Unity 경고·비상 상태도 직접 바꾸지 않습니다. Normal은 이상 기록만, Caution은 경고 UI·소리와 조향/가속 보정, Danger는 기존 비상 정차를 수행합니다. 외부 모델 대신 콘솔 `state caution`/`state danger`로 상태를 지정할 수 있습니다. 과거의 `--can-demo-mode` 옵션과 `can demo on|off` 명령은 없습니다.
+CAN은 원본 조향·페달·종가속도의 차량 조작 이상만 감시합니다. 네 CSV의 `ground_truth_*`는 판단에 사용하지 않고 Unity 경고·비상 상태도 직접 바꾸지 않습니다. Normal에서는 새로운 보정을 시작하지 않고 이상 기록만 수행합니다. Caution은 경고 UI·소리와 조향/가속 보정, Danger는 기존 비상 정차를 수행합니다. `caution`/`distraction`에서 이미 시작한 차선 복귀의 Normal 전환 처리는 아래를 참고하세요. 외부 모델 대신 콘솔 `state caution`/`state danger`로 상태를 지정할 수 있습니다. 과거의 `--can-demo-mode` 옵션과 `can demo on|off` 명령은 없습니다.
 
 재생 완료·중지·TCP 단절 때 CAN 입력을 해제하고 Cruise로 복귀합니다. 외부에서 정한 운전자 상태는 바꾸지 않습니다. Danger가 확정되면 CAN 명령을 차단하고 기존 비상 정차가 제어권을 가집니다.
 
@@ -147,6 +148,10 @@ Caution의 CAN 조향은 Unity `CautionLaneAssistController`가 물리 프레임
 
 복귀 중에는 중앙 오차와 횡속도로 반대 조향을 계산하고, 중앙에 가까워지면 다시 조향을 풀어 전방을 향하게 합니다. 중앙·횡속도·방향이 안정된 상태가 1초 지속되고 원본 조향이 중립 근처(기준 조향각 ±0.45도)에서 0.1초 유지되면 제어권을 반환합니다. 물리적 복귀와 원본 입력 복귀의 타이머를 분리해 다음 졸음까지 계속 개입하지 않도록 했습니다. 조향 최대 입력은 ±0.14, 변화율은 초당 0.8, 횡가속도 목표 제한은 3.5m/s²이며 모두 컴포넌트 설정입니다. Stage 1의 알려진 직선 도로를 사용하는 제어이며 영상 차선 인식이나 경로 계획은 추가하지 않았습니다.
 
+모델 상태가 Normal↔Caution으로 바뀌는 `can caution`/`can distraction`에서는 늦게 도착한 Caution도 현재 차체 위치·횡속도·방향을 기준으로 처리합니다. Caution 진입 시 중앙 오차 0.15m, 횡속도 0.25m/s, 방향 오차 1도 중 하나를 넘으면 추가 이탈을 기다리지 않고 복귀를 시작합니다. 이때 `delayedEntryLookAheadSeconds=0.15`, `delayedEntryPositionGain=1.3`(기존 위치 이득의 배수), `delayedEntrySteeringSlewRate=1.2`를 사용하며 조향 입력·횡가속도 상한은 유지합니다. 이 설정들은 `CautionLaneAssistController`의 `Delayed Caution Entry` 항목에 있습니다.
+
+이 두 시나리오에서는 Caution에서 시작한 복귀 도중 Normal이 와도 중앙·방향 안정과 조향 중립 조건을 만족할 때까지 진행 중인 복귀를 마칩니다. CAN 종료 후 Cruise로 전환되어도 연결이 유지되는 동안 같은 복귀를 마칠 수 있습니다. Normal에서 새로운 복귀를 시작하거나 Caution 경고를 유지하지는 않습니다. 하단 보조 알림은 실제 복귀 중에 표시됩니다. Danger·비상 제어, 수동 제어, 연결 해제, 오래된 Remote 명령, 시나리오 재시작은 이 복귀 유지보다 우선합니다. `danger` 시나리오와 모델 판단은 변경하지 않았습니다.
+
 Unity가 `lane_geometry_ready=true`를 보고하면 Python은 원본 조향 명령을 전달해 중복 보정을 피하고, 실제 적용 조향은 Unity `vehicle_state.steering`에 남습니다. 이전 Unity 스크립트에는 기존 Python 위치·방향 보정만 적용되므로 관련 Unity 스크립트 3개도 동기화해야 합니다. 가속 이상에서는 Unity 실제 속도를 재생 시작 목표 속도(기본 60km/h)와 비교해 가속을 해제하거나 제동합니다. 원본 진단값은 `can_steering`/`can_throttle`/`can_brake`에 남으며 감지 입력으로 Unity 보정값을 사용하지 않습니다. 운전자 최종 상태는 계속 `publish_prediction(shared, label)`로 연결합니다.
 
 오프라인 검증: `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s Unity/python -p 'test_can_integration.py'`
@@ -156,6 +161,8 @@ Unity가 `lane_geometry_ready=true`를 보고하면 Python은 원본 조향 명�
 실제 Unity 검증 결과는 `validation/can_lane_validation.json`, 첫 졸음의 위치·조향 기록은 `validation/can_lane_recovery.png`에 저장했습니다. 검증은 차선 안에 머무르는 것과 함께 실제 0.25m 이상 편향, 양방향 조향, 최종 중앙 오차 0.15m 이하를 요구합니다. 조향을 고정한 채로는 검증을 통과할 수 없습니다.
 
 2026-11-12 Unity 6.3 LTS의 Caution 시험에서 졸음은 0.58~0.62m, 급조향은 0.60m, 전방주시 태만은 0.79m 편향된 뒤 중앙으로 복귀했습니다. 최종 중앙 오차는 모두 4cm 이내였고, 차량 외곽의 최소 차선 여유는 각각 약 0.54m, 0.55m, 0.37m였습니다. 첫 졸음은 7.8초에 개입이 해제된 것도 추가 확인했습니다. 정상에서는 조향 개입이 없었습니다. 발열 제한 때문에 졸음 18초는 구간별로 실행했으며, 중간 연결이 끊긴 연속 실행 시도는 통과 기록에 포함하지 않았습니다.
+
+모델 상태 전환을 적용한 추가 Unity 시험은 `validation/can_model_lane_validation.json`에 저장했습니다. 저장된 실제 D3/A_new 모델 결과를 CAN 시간에 맞춰 재생했고 새 추론은 수행하지 않았습니다. 졸음 3개 구간과 distraction의 주행·복귀 구간 모두 통과했으며, 차량 외곽의 최소 차선 여유는 0.33m 이상, 최종 중앙 오차는 4cm 이내였습니다. 각 Play는 약 14초 후 종료했으므로 전체 시나리오 연속 실행과 임의의 더 긴 모델 지연까지 검증한 결과는 아닙니다.
 
 실제 Unity 측정을 다시 하려면 Python 서버를 끈 상태에서 다음 명령을 실행하고 Unity Play를 누릅니다. `RESULT`가 출력되면 Play를 종료합니다. 이 검증기는 구간 완료와 차선 여유 0.15m 초과를 모두 확인하며 실패하면 종료 코드 1을 반환합니다.
 
@@ -176,9 +183,9 @@ python3 Unity/python/verify_can_lane.py caution --start 2 --end 8 --output /tmp/
 
 1. Python 서버와 Unity를 실행합니다.
 2. `scenario caution`을 입력합니다.
-3. 5초 후 `주의: 운전자 상태를 확인하세요.` 메시지와 경고음이 한 번 발생합니다.
+3. 5초 후 중앙의 주황색 주의 카드와 `운전자 상태를 확인하세요.` 메시지가 표시되고 경고음이 즉시 발생합니다. Caution이 유지되는 동안 0.5초 간격으로 반복됩니다.
 4. Caution 동안 메시지는 버튼 없이 유지되고, 8초 후 Normal이 되면 자동으로 사라집니다.
-5. 다시 `state caution`을 입력하면 새 진입이므로 메시지와 경고음이 다시 발생합니다.
+5. 다시 `state caution`을 입력하면 메시지와 반복 경고음이 재개됩니다. Normal이나 Danger로 전환하면 Caution 경고음이 중단됩니다.
 
 ### 비상 정차
 
@@ -223,10 +230,11 @@ Manual 운전을 하려면 `C`로 Cruise를 끄고 Manual 모드를 사용합니
 ## 데이터 전체 흐름
 
 ```text
-모델/시나리오
-  -> shared.set_driver_state() / publish_prediction()
+모델의 최종 분류 TCP 출력 (5002)
+  -> model_state_client.py (Normal / Caution / Danger만 수신)
+  -> SharedData.receive_model_result()
   -> Python ControlCommand.driver_state
-  -> 20Hz NDJSON TCP
+  -> 20Hz NDJSON TCP (5001, 기존 CAN/차량 명령과 합침)
   -> UnityTcpVehicleBridge.CurrentDriverState
   -> Caution: DriverStateWarningUI
   -> Danger: EmergencyPullOverController -> HazardLightController
@@ -234,17 +242,106 @@ Manual 운전을 하려면 `C`로 Cruise를 끄고 Manual 모드를 사용합니
   -> WheelCollider
 ```
 
-Caution 메시지는 상태가 유지되는 동안 표시되고 Normal로 돌아가면 자동으로 사라집니다. 경고음은 Caution으로 진입할 때만 발생하며 같은 상태의 반복 패킷에서는 다시 울리지 않습니다. 비상 정차 중에는 분류가 흔들려도 Emergency 컨트롤과 비상 UI가 우선합니다.
+Caution 메시지는 상태가 유지되는 동안 표시되고 Normal로 돌아가면 자동으로 사라집니다. 경고음은 Caution 진입 즉시 재생하고, 상태가 유지되는 동안 0.5초 간격으로 반복합니다. Normal이나 Danger로 바뀌면 Caution 경고음을 중단합니다. 비상 정차 중에는 분류가 흔들려도 Emergency 컨트롤과 중앙의 빨간 비상 카드가 우선합니다. 실제 조향 보정·가속 제한은 하단의 보조 알림으로 표시합니다.
+
+## 저장된 모델 분석과 CAN 4개 시나리오 동시 재생
+
+현재 시연에 사용하는 실행 방식입니다. 사전 분석 결과를 재생하며 모델 추론을 다시 하지 않습니다.
+
+준비물은 모델용 Python 환경(`driver-state-monitoring-system/.venv`)과 선택한 영상의 분석 결과 폴더입니다. 결과 폴더에는 `preview.mp4`, `unity_packets.jsonl`, `summary.json`이 있어야 합니다. 아직 분석 결과가 없다면 런타임 자료와 모델 환경을 준비한 뒤 아래 명령으로 생성합니다. `--only`에는 필요한 영상 ID만 지정해도 됩니다.
+
+```bash
+python3 -B Unity/python/run_driver_model.py --only N D3 A_new E4
+```
+
+연동 실행 순서:
+
+1. 실행 중인 기존 Python 차량 서버와 모델을 종료합니다. 이 재생기가 차량 서버 역할도 수행합니다.
+2. Unity에서 `BasicDrivingStage1` Scene을 열고 TCP Host `127.0.0.1`, Port `5001`을 확인합니다.
+3. 프로젝트 루트의 터미널에서 시나리오 하나를 선택해 실행합니다.
+
+```bash
+python3 -B Unity/python/play_can_model.py danger
+```
+
+| 명령 | CAN CSV | 모델 영상 |
+|---|---|---|
+| `python3 -B Unity/python/play_can_model.py normal` | `can_normal_60kmh_15s.csv` | N |
+| `python3 -B Unity/python/play_can_model.py caution` | `can_caution_drowsy_drift_15s.csv` (18초) | D3 |
+| `python3 -B Unity/python/play_can_model.py distraction` | `can_distraction_held_steer_15s.csv` | A_new |
+| `python3 -B Unity/python/play_can_model.py danger` | `can_danger_steer_accel_15s.csv` | E4 |
+
+4. Unity에서 **Play**를 누릅니다. 연결되면 선택한 가시화 영상·모델 판단과 대응 CAN 시나리오가 함께 시작됩니다. 별도로 `can ...`를 입력하거나 모델을 실행하지 않습니다. 시나리오 인수를 생략한 기존 명령은 `danger`로 동작합니다.
+5. 영상이 끝난 뒤에도 연결은 유지됩니다. 비상 정차가 진행 중이면 완료까지 확인하고, 영상 창에서 `q` 또는 터미널에서 Ctrl+C로 종료합니다.
+
+영상·판단 결과·CAN은 같은 시작 시점을 사용합니다. Normal은 CAN 주행, Caution은 경고와 필요한 차량 보정, Danger는 기존 비상 정차로 이어집니다. 판단은 CSV 정답 라벨이 아닌 저장된 실제 모델 출력에서 읽습니다.
+
+기본으로 선택한 모델 영상의 가장 최근 완료된 분석 결과를 선택합니다. 특정 결과를 선택하려면 `--recording` 뒤에 `preview.mp4`와 `unity_packets.jsonl`이 있는 해당 영상 폴더 경로를 넣습니다. 시나리오와 다른 모델 영상의 판단 로그는 받지 않습니다. Unity 연결 포트를 바꾸려면 `--port`와 Unity의 Port를 함께 변경합니다. CAN이 영상보다 먼저 끝나면 일반 주행으로 복귀하며 영상은 끝까지 재생합니다. Danger 비상 제어는 계속 우선합니다.
+
+다시 시연할 때는 **재생기 종료 → Unity Stop → 같은 재생 명령 실행 → Unity Play** 순서로 시작합니다. Danger 이후 비상 제어가 유지되므로 새 실행 전에 Unity Play 상태를 초기화합니다.
 
 ## 실제 모델 연결 위치
 
-`Unity/python/vehicle_tcp_server.py`에서 모델 추론 결과를 얻은 위치에 한 줄을 연결합니다.
+`driver-state-monitoring-system`의 소스·설정·가중치는 수정하지 않습니다. 모델의 기존 TCP 서버를 **5002**로 실행하고, 기존 차량 서버가 그 결과를 받아 Unity의 기존 **5001** 연결로 전달합니다. 모델에 포함된 Unity 스크립트를 현재 프로젝트에 덮어쓸 필요가 없습니다.
 
-```python
-publish_prediction(shared, predicted_label)  # predicted_label: Normal, Caution, Danger
+저장소 루트에서 터미널 두 개를 사용합니다. 먼저 모델 README에 따라 별도 런타임 자료와 모델 실행용 Python 환경을 준비해야 합니다. 현재 Git에 포함된 코드만으로는 가중치·원본 영상·ECG/PPG 자료가 없어 추론을 시작할 수 없습니다.
+
+터미널 1 — 외부 실행기가 기존 모델을 5002 포트로 시작하고 가시화 창을 표시합니다. `E4`는 심정지 시연 입력이며 다른 입력은 `--only N`, `--only D3`, `--only A_new`로 선택할 수 있습니다.
+
+```bash
+python3 -B Unity/python/run_driver_model.py --only E4 --unity --show
 ```
 
-또는 동일한 동작의 `shared.set_driver_state(predicted_label)`을 호출해도 됩니다. 이 함수는 운전자 상태만 변경하며 Cruise/Remote/Manual 모드는 변경하지 않습니다.
+`run_driver_model.py`는 선택한 영상·생체신호의 실제 내용으로 `outputs/data_E4_데이터해시`와 같은 결과 폴더를 선택합니다. 같은 입력을 재실행하면 폴더를 재사용하고 최신 분석 결과로 갱신합니다. 영상이나 ECG/PPG·시간 데이터가 바뀌면 다른 폴더를 생성하며 이전 데이터의 결과는 보존합니다. 화면 표시·TCP 포트 변경만으로는 폴더가 추가되지 않습니다.
+
+원본 모델은 TCP 로그를 덮어쓰지 않으므로 재실행 전에 기존 `unity_transport.jsonl`을 같은 폴더의 `unity_transport.history.jsonl`에 누적 보존합니다. 그 뒤 새 현재 로그를 생성해 `FileExistsError`를 방지하며, 실행마다 폴더나 백업 파일을 늘리지 않습니다. 같은 데이터의 동시 실행은 차단합니다. 모델 코드는 수정하지 않습니다. 직접 `--output`을 지정할 때는 새 폴더나 빈 폴더를 사용해야 합니다.
+
+Unity 없이 모델 가시화만 확인하려면 다음을 실행합니다. 영상 창에서 `q`를 누르면 종료합니다.
+
+```bash
+python3 -B Unity/python/run_driver_model.py --only E4 --show
+```
+
+터미널 2 — 차량 서버를 모델 연결 모드로 실행합니다. 이 서버는 Python 표준 라이브러리만 사용하며 모델용 torch/MediaPipe를 불러오지 않습니다.
+
+```bash
+python3 -B Unity/python/vehicle_tcp_server.py --model-port 5002
+```
+
+이후 Unity Play를 누릅니다. `UnityTcpVehicleBridge`의 Host는 `127.0.0.1`, Port는 기존 `5001`입니다. Unity가 연결돼야 모델 쪽 TCP에 접속하므로 녹화 시나리오가 Unity Play보다 먼저 진행되지 않습니다. Unity 연결이 끊기면 모델 TCP도 닫아 모델의 기존 재접속 대기 동작을 이용합니다. 모델 파일의 분석·초기화 자체는 Unity 연결 전에 시작될 수 있습니다.
+
+이 모드에서 CAN으로 주행하려면 터미널 2의 `control>`에 `can danger`를 입력합니다. 모델 입력과 CAN의 대응은 E4→`can danger`, D3→`can caution`, A_new→`can distraction`, N→`can normal`입니다. 실제 추론 모드에서는 모델 처리 속도와 CAN의 진행 시간이 자동으로 맞춰지지 않습니다. 영상·판단 결과·CAN을 함께 재생하는 시연은 위의 저장 결과 재생 방식을 사용합니다.
+
+연결 후에는 콘솔에 `[MODEL INPUT] active`, 상태가 바뀔 때 `[MODEL] final driver state ...`가 표시됩니다. 모델 재생은 기존 녹화 영상과 저장된 ECG/PPG 입력을 사용합니다. 이 연결 작업에서 실시간 카메라·센서 입력은 추가하지 않았습니다.
+
+- 최종 `fusion_state`를 우선 읽고 `driver_state`와 일치하는 세 분류만 적용합니다. 비전·생체신호 개별 판단, 조향·가속·제동 값은 적용하지 않습니다.
+- Normal은 기존 주행을 유지하고, Caution은 기존 UI·경고음과 CAN 보정을 사용하며, Danger는 기존 비상등·갓길 정차·e-Call 시연으로 이어집니다.
+- 모델 준비 중, 판단 불가, 오래된 결과, 통신 단절은 Caution 경고로 처리합니다. 이미 수신한 Danger는 입력 장애로 해제하지 않습니다. 판단 불가 상태를 모델의 실제 Caution 결과와 구분한 이유는 `status`에 표시합니다.
+- 짧은 Danger 뒤 바로 Normal이 와도 Unity가 `emergency_phase`로 비상 제어 시작을 보고할 때까지 Danger 전달을 유지합니다. 이후 분류가 Normal로 바뀌어도 Unity 비상 정차는 기존처럼 R 초기화 전까지 유지됩니다.
+- 모델 연결 모드에서는 `state ...`와 `scenario caution/danger`를 차단해 실제 분류 결과와 충돌하지 않게 합니다. `can normal/caution/distraction/danger`, `can stop`, `status`, `quit`는 계속 사용할 수 있습니다. CAN 시나리오 이름은 모델 분류를 바꾸지 않습니다.
+- 비상 정차 후 다시 시험하려면 `can stop`, 모델의 실제 Normal 복귀, Unity R 초기화 순서로 진행하고 CAN을 다시 시작합니다. 모델은 해당 터미널에서 종료·재실행해 다시 재생할 수 있습니다.
+
+콘솔 없이 자동 수신만 하려면 `--no-console`을 추가하고 Ctrl+C로 종료합니다. `--model-port`를 생략하면 기존 수동 상태/CAN 시연 모드입니다.
+
+| 설정 | 기본값 | 의미 |
+|---|---|---|
+| `--port` | `5001` | Unity 연결 포트 |
+| `--model-port` | 미지정 | 지정하면 모델 수신 활성화, 로컬에서는 `5002` 권장 |
+| `--model-host` | `127.0.0.1` | 모델 서버 주소 |
+| `--model-timeout` | `1.0`초 | 유효한 모델 형식의 패킷이 안 들어올 때 경고 전환 |
+| `--model-max-age` | `0.75`초 | 수신 결과의 허용 분석 나이, 모델 자체의 판단 불가 처리는 그대로 존중 |
+
+모델 추론과 Unity Editor를 실행하지 않고 Python 연결을 검증하려면 다음을 실행합니다. 실제 루프백 TCP로 패킷 분할·합쳐짐, 상태 전달, 통신 끊김·재접속, Danger 유지와 CAN 우선순위를 확인합니다.
+
+```bash
+python3 -B -m unittest discover -s Unity/python -p 'test_*.py' -v
+```
+
+2026-11-13에는 제공받은 `driver-runtime-assets.zip`을 복원하고 Python 3.11.15 전용 `.venv`에 원본 `requirements-lock.txt`를 설치했습니다. 모델 소스 132개 파일과 가중치·원본 입력 26개의 해시를 확인했고, 모델 자체 검증 293개와 CAN/모델 연결 검증 41개가 통과했습니다.
+
+원본 N·D3·E4·A_new 전체 2,123프레임의 실제 추론을 기존 차량 서버와 화면 없는 TCP 수신기로 확인했습니다. 첫 검증의 4분 시간 상한 이후 A_new를 별도로 완료했으며, Unity Editor와 차량 물리는 실행하지 않았습니다. E4는 영상 시간 5.00초에 Caution, 11.01초에 Danger가 처음 출력됐습니다. 정상용 N에서도 `eyes_closed`와 `recovery_pending`에 의한 Caution이 148프레임 발생했으며 원본 모델 판단을 그대로 전달했습니다.
+
+이 환경의 전체 녹화 처리 속도는 7.3~9.2FPS였습니다. 이 수치는 추론·화면 생성·결과 저장을 포함하며 원본 영상 재생보다 느립니다. 실시간 카메라 처리 성능과 실제 Unity 주행은 별도 검증이 필요합니다. 상세 결과는 로컬 `driver-state-monitoring-system/outputs/runtime_validation_20261113/summary.json`, 분석 영상은 해당 결과의 `preview_path`에 있습니다.
 
 ## 문제 해결
 
