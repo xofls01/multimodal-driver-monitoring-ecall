@@ -237,16 +237,36 @@ Manual 운전을 하려면 `C`로 Cruise를 끄고 Manual 모드를 사용합니
 
 Caution 메시지는 상태가 유지되는 동안 표시되고 Normal로 돌아가면 자동으로 사라집니다. 경고음은 Caution으로 진입할 때만 발생하며 같은 상태의 반복 패킷에서는 다시 울리지 않습니다. 비상 정차 중에는 분류가 흔들려도 Emergency 컨트롤과 비상 UI가 우선합니다.
 
+## 저장된 E4 분석과 CAN danger 동시 재생
+
+기존 차량 서버와 모델 실행을 종료한 뒤 저장소 루트에서 실행합니다.
+
+```bash
+python3 -B Unity/python/play_can_model.py
+```
+
+Unity Play가 연결되면 저장된 E4 가시화 영상·모델 판단과 `can danger`를 함께 시작합니다. 별도로 `can danger`를 입력하거나 모델을 실행하지 않습니다. 모델 추론은 다시 하지 않고 사전 분석 결과를 재생합니다. 저장된 결과 중 가장 최근 E4 영상을 사용하며, 특정 결과는 `--recording 분석결과폴더`로 지정합니다. 창에서 `q` 또는 터미널에서 Ctrl+C로 종료합니다. 영상 종료 후에도 TCP 연결을 유지하므로 Unity 비상 정차가 끝나는 것을 확인할 수 있습니다.
+
 ## 실제 모델 연결 위치
 
 `driver-state-monitoring-system`의 소스·설정·가중치는 수정하지 않습니다. 모델의 기존 TCP 서버를 **5002**로 실행하고, 기존 차량 서버가 그 결과를 받아 Unity의 기존 **5001** 연결로 전달합니다. 모델에 포함된 Unity 스크립트를 현재 프로젝트에 덮어쓸 필요가 없습니다.
 
 저장소 루트에서 터미널 두 개를 사용합니다. 먼저 모델 README에 따라 별도 런타임 자료와 모델 실행용 Python 환경을 준비해야 합니다. 현재 Git에 포함된 코드만으로는 가중치·원본 영상·ECG/PPG 자료가 없어 추론을 시작할 수 없습니다.
 
-터미널 1 — 기존 모델 실행 옵션으로 출력 포트만 지정합니다. `E4`는 심정지 시연 입력이며 다른 입력은 `--only N`, `--only D3`, `--only A_new`로 선택할 수 있습니다.
+터미널 1 — 외부 실행기가 기존 모델을 5002 포트로 시작하고 가시화 창을 표시합니다. `E4`는 심정지 시연 입력이며 다른 입력은 `--only N`, `--only D3`, `--only A_new`로 선택할 수 있습니다.
 
 ```bash
-sh driver-state-monitoring-system/run_multimodal.sh --only E4 --unity --unity-port 5002
+python3 -B Unity/python/run_driver_model.py --only E4 --unity --show
+```
+
+`run_driver_model.py`는 선택한 영상·생체신호의 실제 내용으로 `outputs/data_E4_데이터해시`와 같은 결과 폴더를 선택합니다. 같은 입력을 재실행하면 폴더를 재사용하고 최신 분석 결과로 갱신합니다. 영상이나 ECG/PPG·시간 데이터가 바뀌면 다른 폴더를 생성하며 이전 데이터의 결과는 보존합니다. 화면 표시·TCP 포트 변경만으로는 폴더가 추가되지 않습니다.
+
+원본 모델은 TCP 로그를 덮어쓰지 않으므로 재실행 전에 기존 `unity_transport.jsonl`을 같은 폴더의 `unity_transport.history.jsonl`에 누적 보존합니다. 그 뒤 새 현재 로그를 생성해 `FileExistsError`를 방지하며, 실행마다 폴더나 백업 파일을 늘리지 않습니다. 같은 데이터의 동시 실행은 차단합니다. 모델 코드는 수정하지 않습니다. 직접 `--output`을 지정할 때는 새 폴더나 빈 폴더를 사용해야 합니다.
+
+Unity 없이 모델 가시화만 확인하려면 다음을 실행합니다. 영상 창에서 `q`를 누르면 종료합니다.
+
+```bash
+python3 -B Unity/python/run_driver_model.py --only E4 --show
 ```
 
 터미널 2 — 차량 서버를 모델 연결 모드로 실행합니다. 이 서버는 Python 표준 라이브러리만 사용하며 모델용 torch/MediaPipe를 불러오지 않습니다.
@@ -279,7 +299,7 @@ python3 -B Unity/python/vehicle_tcp_server.py --model-port 5002
 모델 추론과 Unity Editor를 실행하지 않고 Python 연결을 검증하려면 다음을 실행합니다. 실제 루프백 TCP로 패킷 분할·합쳐짐, 상태 전달, 통신 끊김·재접속, Danger 유지와 CAN 우선순위를 확인합니다.
 
 ```bash
-python3 -B -m unittest discover -s Unity/python -p 'test_*integration.py' -v
+python3 -B -m unittest discover -s Unity/python -p 'test_*.py' -v
 ```
 
 2026-11-13에는 제공받은 `driver-runtime-assets.zip`을 복원하고 Python 3.11.15 전용 `.venv`에 원본 `requirements-lock.txt`를 설치했습니다. 모델 소스 132개 파일과 가중치·원본 입력 26개의 해시를 확인했고, 모델 자체 검증 293개와 CAN/모델 연결 검증 41개가 통과했습니다.
