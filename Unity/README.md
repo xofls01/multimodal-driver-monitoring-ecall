@@ -6,7 +6,8 @@
 - 100m 도로 세그먼트 4개의 재활용식 직선 도로
 - Python의 `Normal/Caution/Danger` 상태 및 명시적 원격 운전 명령
 - 별도 스레드에서 실행되는 caution/danger 시나리오
-- Caution 진입 시 확인 버튼 없는 주의 메시지와 1회 경고음
+- Caution 동안 중앙의 주황색 주의 카드와 0.5초 간격 반복 경고음
+- Danger 동안 중앙의 빨간 테두리·반투명 배경 알림, 실제 보정 중 하단의 청록색 보조 알림
 - 밝은 웜 화이트 차체와 전면 다크/후면 레드 램프 베이스
 - 램프 베이스 위 전·후방 좌우 주황색 비상등 4개의 실시간 점멸 표시
 - Danger 진입 시 비상 정차 상태 머신, 비상 UI, 비상등 점멸, e-Call 상태
@@ -176,9 +177,9 @@ python3 Unity/python/verify_can_lane.py caution --start 2 --end 8 --output /tmp/
 
 1. Python 서버와 Unity를 실행합니다.
 2. `scenario caution`을 입력합니다.
-3. 5초 후 `주의: 운전자 상태를 확인하세요.` 메시지와 경고음이 한 번 발생합니다.
+3. 5초 후 중앙의 주황색 주의 카드와 `운전자 상태를 확인하세요.` 메시지가 표시되고 경고음이 즉시 발생합니다. Caution이 유지되는 동안 0.5초 간격으로 반복됩니다.
 4. Caution 동안 메시지는 버튼 없이 유지되고, 8초 후 Normal이 되면 자동으로 사라집니다.
-5. 다시 `state caution`을 입력하면 새 진입이므로 메시지와 경고음이 다시 발생합니다.
+5. 다시 `state caution`을 입력하면 메시지와 반복 경고음이 재개됩니다. Normal이나 Danger로 전환하면 Caution 경고음이 중단됩니다.
 
 ### 비상 정차
 
@@ -235,17 +236,36 @@ Manual 운전을 하려면 `C`로 Cruise를 끄고 Manual 모드를 사용합니
   -> WheelCollider
 ```
 
-Caution 메시지는 상태가 유지되는 동안 표시되고 Normal로 돌아가면 자동으로 사라집니다. 경고음은 Caution으로 진입할 때만 발생하며 같은 상태의 반복 패킷에서는 다시 울리지 않습니다. 비상 정차 중에는 분류가 흔들려도 Emergency 컨트롤과 비상 UI가 우선합니다.
+Caution 메시지는 상태가 유지되는 동안 표시되고 Normal로 돌아가면 자동으로 사라집니다. 경고음은 Caution 진입 즉시 재생하고, 상태가 유지되는 동안 0.5초 간격으로 반복합니다. Normal이나 Danger로 바뀌면 Caution 경고음을 중단합니다. 비상 정차 중에는 분류가 흔들려도 Emergency 컨트롤과 중앙의 빨간 비상 카드가 우선합니다. 실제 조향 보정·가속 제한은 하단의 보조 알림으로 표시합니다.
 
 ## 저장된 E4 분석과 CAN danger 동시 재생
 
-기존 차량 서버와 모델 실행을 종료한 뒤 저장소 루트에서 실행합니다.
+현재 시연에 사용하는 실행 방식입니다. 사전 분석 결과를 재생하며 모델 추론을 다시 하지 않습니다.
+
+준비물은 모델용 Python 환경(`driver-state-monitoring-system/.venv`)과 E4 분석 결과 폴더입니다. 결과 폴더에는 `preview.mp4`, `unity_packets.jsonl`, `summary.json`이 있어야 합니다. 아직 분석 결과가 없다면 런타임 자료와 모델 환경을 준비한 뒤 아래 명령으로 한 번 생성합니다.
+
+```bash
+python3 -B Unity/python/run_driver_model.py --only E4
+```
+
+연동 실행 순서:
+
+1. 실행 중인 기존 Python 차량 서버와 모델을 종료합니다. 이 재생기가 차량 서버 역할도 수행합니다.
+2. Unity에서 `BasicDrivingStage1` Scene을 열고 TCP Host `127.0.0.1`, Port `5001`을 확인합니다.
+3. 프로젝트 루트의 터미널에서 다음 명령을 실행합니다.
 
 ```bash
 python3 -B Unity/python/play_can_model.py
 ```
 
-Unity Play가 연결되면 저장된 E4 가시화 영상·모델 판단과 `can danger`를 함께 시작합니다. 별도로 `can danger`를 입력하거나 모델을 실행하지 않습니다. 모델 추론은 다시 하지 않고 사전 분석 결과를 재생합니다. 저장된 결과 중 가장 최근 E4 영상을 사용하며, 특정 결과는 `--recording 분석결과폴더`로 지정합니다. 창에서 `q` 또는 터미널에서 Ctrl+C로 종료합니다. 영상 종료 후에도 TCP 연결을 유지하므로 Unity 비상 정차가 끝나는 것을 확인할 수 있습니다.
+4. Unity에서 **Play**를 누릅니다. 연결되면 저장된 E4 가시화 영상·모델 판단과 `can danger`가 함께 시작됩니다. 별도로 `can danger`를 입력하거나 모델을 실행하지 않습니다.
+5. 영상이 끝난 뒤에도 연결이 유지되므로 Unity의 비상 정차를 확인합니다. 영상 창에서 `q` 또는 터미널에서 Ctrl+C로 종료합니다.
+
+영상·판단 결과·CAN은 같은 시작 시점을 사용합니다. Normal은 CAN 주행, Caution은 경고와 필요한 차량 보정, Danger는 기존 비상 정차로 이어집니다. 판단은 CSV 정답 라벨이 아닌 저장된 실제 모델 출력에서 읽습니다.
+
+기본으로 가장 최근의 완료된 E4 분석 결과를 선택합니다. 특정 결과를 선택하려면 `--recording` 뒤에 `preview.mp4`와 `unity_packets.jsonl`이 있는 E4 폴더 경로를 넣습니다. Unity 연결 포트를 바꾸려면 `--port`와 Unity의 Port를 함께 변경합니다.
+
+다시 시연할 때는 **재생기 종료 → Unity Stop → 같은 재생 명령 실행 → Unity Play** 순서로 시작합니다. Danger 이후 비상 제어가 유지되므로 새 실행 전에 Unity Play 상태를 초기화합니다.
 
 ## 실제 모델 연결 위치
 
@@ -276,6 +296,8 @@ python3 -B Unity/python/vehicle_tcp_server.py --model-port 5002
 ```
 
 이후 Unity Play를 누릅니다. `UnityTcpVehicleBridge`의 Host는 `127.0.0.1`, Port는 기존 `5001`입니다. Unity가 연결돼야 모델 쪽 TCP에 접속하므로 녹화 시나리오가 Unity Play보다 먼저 진행되지 않습니다. Unity 연결이 끊기면 모델 TCP도 닫아 모델의 기존 재접속 대기 동작을 이용합니다. 모델 파일의 분석·초기화 자체는 Unity 연결 전에 시작될 수 있습니다.
+
+이 모드에서 CAN으로 주행하려면 터미널 2의 `control>`에 `can danger`를 입력합니다. 모델 입력과 CAN의 대응은 E4→`can danger`, D3→`can caution`, A_new→`can distraction`, N→`can normal`입니다. 실제 추론 모드에서는 모델 처리 속도와 CAN의 진행 시간이 자동으로 맞춰지지 않습니다. 영상·판단 결과·CAN을 함께 재생하는 시연은 위의 저장 결과 재생 방식을 사용합니다.
 
 연결 후에는 콘솔에 `[MODEL INPUT] active`, 상태가 바뀔 때 `[MODEL] final driver state ...`가 표시됩니다. 모델 재생은 기존 녹화 영상과 저장된 ECG/PPG 입력을 사용합니다. 이 연결 작업에서 실시간 카메라·센서 입력은 추가하지 않았습니다.
 
