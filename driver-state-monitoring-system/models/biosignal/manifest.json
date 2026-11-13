@@ -1,0 +1,33 @@
+{
+  "origin": "User supplied multimodal-driver-monitoring-ecall-biomodel.zip",
+  "archive_sha256": "5543e448a5d1a3cfb0f5c432bda8640bf2afb058239c316bf686f682c000c28e",
+  "training_in_this_integration": false,
+  "files": [
+    {
+      "file": "hr_classifier_ft.pt",
+      "sha256": "eb0f36a831d84e1a2af0b40104426c7affde93368f8387b22a5234ac4fedb490",
+      "used": true
+    },
+    {
+      "file": "hr_classifier.pt",
+      "sha256": "fc335fb179cbd4751f66253a7a42add24a7c734c784fdc486890ca8aca748dd9",
+      "used": false
+    },
+    {
+      "file": "ppg_head.pt",
+      "sha256": "23866ebe02e735c63dc5eec828fcf9f936cdc6a2d72d023675a9620a388cac86",
+      "used": false
+    },
+    {
+      "file": "papagei_s.pt",
+      "sha256": "79d68671e51bdc951fee853e5a8241099e38148ff26ed888b843849332e0b988",
+      "used": true
+    },
+    {
+      "file": "ppg_head_ft.pt",
+      "sha256": "850247a4e82cba9413a60a3767f78af38f84aeac274eadbb06e6477004b45ebf",
+      "used": true
+    }
+  ],
+  "selection_basis": "Original live program defaults; previous integration used base weights and was corrected."
+}

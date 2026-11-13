@@ -1,0 +1,538 @@
+{
+  "type": "object",
+  "required": [
+    "schema",
+    "clip_id",
+    "session_id",
+    "source_time_seconds",
+    "processed_at_utc",
+    "state",
+    "prediction_age_seconds",
+    "is_current",
+    "danger",
+    "vision",
+    "driver_response",
+    "observation_quality",
+    "biosignal"
+  ],
+  "properties": {
+    "schema": {
+      "const": "driver_monitoring_output.v1"
+    },
+    "clip_id": {
+      "type": "string"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "source_time_seconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "processed_at_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "state": {
+      "enum": [
+        "normal",
+        "caution",
+        "danger",
+        "unavailable"
+      ]
+    },
+    "prediction_age_seconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "is_current": {
+      "type": "boolean"
+    },
+    "danger": {
+      "$ref": "#/$defs/danger"
+    },
+    "vision": {
+      "$ref": "#/$defs/vision"
+    },
+    "driver_response": {
+      "$ref": "#/$defs/driver_response"
+    },
+    "observation_quality": {
+      "$ref": "#/$defs/observation_quality"
+    },
+    "biosignal": {
+      "$ref": "#/$defs/biosignal"
+    },
+    "vehicle_confirmation": {
+      "$ref": "#/$defs/vehicle_confirmation"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "danger": {
+      "type": "object",
+      "required": [
+        "active",
+        "detected",
+        "source_seconds",
+        "first_source_seconds",
+        "detected_at_utc",
+        "event_id",
+        "event_count",
+        "recording_event_utc"
+      ],
+      "properties": {
+        "active": {
+          "type": "boolean"
+        },
+        "detected": {
+          "type": "boolean"
+        },
+        "source_seconds": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "first_source_seconds": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "detected_at_utc": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "event_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "event_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "recording_event_utc": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "vision": {
+      "type": "object",
+      "required": [
+        "state",
+        "current",
+        "observation_source_seconds",
+        "observation_age_seconds",
+        "max_observation_age_seconds",
+        "danger",
+        "eyes_observed",
+        "eyes_closed",
+        "eyes_closed_seconds",
+        "head_lowering_observed",
+        "head_lowered",
+        "head_lowering_seconds",
+        "head_lowering_angle_degrees",
+        "head_angle_calibrated",
+        "head_angle_status",
+        "head_pitch_proxy_observed",
+        "head_pitch_proxy",
+        "head_pitch_proxy_units",
+        "head_drop_ratio",
+        "face_observed",
+        "face_visible",
+        "face_readable",
+        "hands_observed",
+        "hands_on_wheel",
+        "hands_on_wheel_count",
+        "hands_on_wheel_method",
+        "physical_grip_confirmed",
+        "physical_grip_confirmation_available"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "normal",
+            "caution",
+            "danger",
+            "unavailable"
+          ]
+        },
+        "current": {
+          "type": "boolean"
+        },
+        "observation_source_seconds": {
+          "type": "number"
+        },
+        "observation_age_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "max_observation_age_seconds": {
+          "type": "number"
+        },
+        "danger": {
+          "$ref": "#/$defs/danger"
+        },
+        "eyes_observed": {
+          "type": "boolean"
+        },
+        "eyes_closed": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "eyes_closed_seconds": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "head_lowering_observed": {
+          "type": "boolean"
+        },
+        "head_lowered": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "head_lowering_seconds": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "head_lowering_angle_degrees": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "head_angle_calibrated": {
+          "type": "boolean"
+        },
+        "head_angle_status": {
+          "type": "string"
+        },
+        "head_pitch_proxy_observed": {
+          "type": "boolean"
+        },
+        "head_pitch_proxy": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "head_pitch_proxy_units": {
+          "const": "relative_landmark_scaled_units_not_degrees"
+        },
+        "head_drop_ratio": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "face_observed": {
+          "type": "boolean"
+        },
+        "face_visible": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "face_readable": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "hands_observed": {
+          "type": "boolean"
+        },
+        "hands_on_wheel": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "hands_on_wheel_count": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "hands_on_wheel_method": {
+          "type": "string"
+        },
+        "physical_grip_confirmed": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "physical_grip_confirmation_available": {
+          "type": "boolean"
+        }
+      }
+    },
+    "driver_response": {
+      "type": "object",
+      "required": [
+        "warning_active",
+        "warning_request_id",
+        "warning_started_source_seconds",
+        "warning_displayed_source_seconds",
+        "warning_display_confirmed",
+        "visual_recovery",
+        "explicit_input_connected",
+        "cancel_attempted",
+        "last_confirmed_response",
+        "consciousness_confirmed"
+      ],
+      "properties": {
+        "warning_active": {
+          "type": "boolean"
+        },
+        "warning_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "warning_started_source_seconds": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "warning_displayed_source_seconds": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "warning_display_confirmed": {
+          "type": "boolean"
+        },
+        "visual_recovery": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "explicit_input_connected": {
+          "type": "boolean"
+        },
+        "cancel_attempted": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "last_confirmed_response": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "consciousness_confirmed": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "observation_quality": {
+      "type": "object",
+      "required": [
+        "judgment_confidence_score",
+        "judgment_confidence_calibrated",
+        "face_detection_confidence",
+        "face_detection_confidence_available",
+        "face",
+        "quality_reasons",
+        "camera",
+        "sensors"
+      ],
+      "properties": {
+        "judgment_confidence_score": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "judgment_confidence_calibrated": {
+          "type": "boolean"
+        },
+        "face_detection_confidence": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "face_detection_confidence_available": {
+          "type": "boolean"
+        },
+        "face": {
+          "type": "object"
+        },
+        "quality_reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "camera": {
+          "type": "object"
+        },
+        "sensors": {
+          "type": "object"
+        }
+      }
+    },
+    "biosignal": {
+      "type": "object",
+      "required": [
+        "bpm",
+        "bpm_state",
+        "bpm_source",
+        "bpm_verified_by_monitor",
+        "model_state",
+        "model_bpm",
+        "model_bpm_available",
+        "synthetic"
+      ],
+      "properties": {
+        "bpm": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "bpm_state": {
+          "enum": [
+            "normal",
+            "caution",
+            "danger",
+            "unavailable"
+          ]
+        },
+        "bpm_source": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "bpm_verified_by_monitor": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "model_state": {
+          "enum": [
+            "normal",
+            "caution",
+            "danger",
+            "unavailable"
+          ]
+        },
+        "model_bpm": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "model_bpm_available": {
+          "type": "boolean"
+        },
+        "synthetic": {
+          "type": "boolean"
+        }
+      }
+    },
+    "vehicle_confirmation": {
+      "type": "object",
+      "required": [
+        "stop_confirmed",
+        "stop_request_observed",
+        "receipt_fresh",
+        "source_time_matches",
+        "clip_matches",
+        "session_matches",
+        "feedback_source_seconds",
+        "feedback_age_seconds",
+        "speed_kph",
+        "emergency_phase",
+        "status",
+        "confirmation_source"
+      ],
+      "properties": {
+        "stop_confirmed": {
+          "type": "boolean"
+        },
+        "stop_request_observed": {
+          "type": "boolean"
+        },
+        "receipt_fresh": {
+          "type": "boolean"
+        },
+        "source_time_matches": {
+          "type": "boolean"
+        },
+        "clip_matches": {
+          "type": "boolean"
+        },
+        "session_matches": {
+          "type": "boolean"
+        },
+        "feedback_source_seconds": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "feedback_age_seconds": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "speed_kph": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "emergency_phase": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "enum": [
+            "confirmed_stopped",
+            "not_received",
+            "not_confirmed",
+            "stale"
+          ]
+        },
+        "confirmation_source": {
+          "const": "unity_vehicle_feedback"
+        }
+      }
+    }
+  }
+}

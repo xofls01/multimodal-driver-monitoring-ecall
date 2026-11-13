@@ -1,0 +1,21 @@
+{
+  "mode": "literature",
+  "eyes_closed_caution_seconds": 1.5,
+  "eyes_prolonged_seconds": 3.0,
+  "eyes_closed_danger_seconds": 6.0,
+  "attention_away_caution_seconds": 3.0,
+  "attention_window_seconds": 30.0,
+  "attention_cumulative_seconds": 10.0,
+  "attention_after_warning_seconds": 3.0,
+  "mouth_open_caution_seconds": 3.0,
+  "eye_ratio_window_seconds": 60.0,
+  "eye_ratio_high": 0.2,
+  "eye_ratio_result_lifetime_seconds": 60.0,
+  "recovery_seconds": 0.3,
+  "max_observation_gap_seconds": 0.25,
+  "required_observations": [
+    "eyes",
+    "gaze"
+  ],
+  "external_response_enabled": false
+}

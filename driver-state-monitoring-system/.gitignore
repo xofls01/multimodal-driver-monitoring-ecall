@@ -1,0 +1,38 @@
+# Local environment and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+.vscode/
+# Private recordings, model binaries and generated results
+data/
+datasets/
+outputs/
+reference/
+backups/
+runs/
+*.pt
+*.pth
+*.onnx
+*.tflite
+*.task
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+*.jpg
+*.jpeg
+*.png
+*.jsonl
+*.zip
+source_paths.json
+original_vision_snapshot.json
+# Credentials
+.env
+.env.*
+!.env.example
+credentials*.json
+token*.json

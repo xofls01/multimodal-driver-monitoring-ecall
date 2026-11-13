@@ -1,0 +1,9 @@
+{
+  "name": "fast5_experiment",
+  "description": "User requested approximately5s startup; experimental, not a validated safety threshold",
+  "overrides": {
+    "calibration_s": 5.0,
+    "min_ready_s": 3.0,
+    "calibration_min_readings": 3
+  }
+}
