@@ -1,0 +1,5 @@
+# PC e-Call 실행 기록 (실행할 때마다 늘어남)
+ecall_requests.jsonl
+# Pi 의 전송 기록 DB
+ecall_log.db
+__pycache__/
