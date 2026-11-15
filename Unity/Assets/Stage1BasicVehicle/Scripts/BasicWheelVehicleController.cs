@@ -49,6 +49,21 @@ public class BasicWheelVehicleController : MonoBehaviour
     public bool RemoteHazard { get; private set; }
     public bool RemoteEcall { get; private set; }
     public bool EmergencyOverrideActive { get; private set; }
+    // 비상 정차 도중 운전자가 직접 조작해 주도권을 가져간 상태. 이 동안 TCP 의 cruise/remote 명령이
+    // 운전자 조작을 다시 막지 않도록 수동 모드를 유지합니다. R 리셋, M/C 키, 새 Danger 로 끝납니다.
+    public bool DriverTakeoverActive { get; private set; }
+    // 운전자 키보드 입력의 크기(0~1). 비상 제어 중에도 읽기는 계속하므로 개입 여부 판단에 씁니다.
+    public float DriverInputMagnitude
+    {
+        get
+        {
+            return Mathf.Max(
+                Mathf.Abs(steeringInput),
+                Mathf.Abs(throttleInput),
+                handbrakeInput ? 1f : 0f
+            );
+        }
+    }
     public string EffectiveControlMode
     {
         get
@@ -56,6 +71,10 @@ public class BasicWheelVehicleController : MonoBehaviour
             if (EmergencyOverrideActive)
             {
                 return "Emergency";
+            }
+            if (DriverTakeoverActive)
+            {
+                return "DriverTakeover";
             }
             if (controlMode == VehicleControlMode.Remote)
             {
@@ -117,6 +136,7 @@ public class BasicWheelVehicleController : MonoBehaviour
 
         if (ModeToggleKeyPressed())
         {
+            EndDriverTakeover();
             controlMode = controlMode == VehicleControlMode.Manual
                 ? VehicleControlMode.Remote
                 : VehicleControlMode.Manual;
@@ -124,6 +144,7 @@ public class BasicWheelVehicleController : MonoBehaviour
 
         if (CruiseToggleKeyPressed() && cruiseController != null)
         {
+            EndDriverTakeover();
             cruiseController.SetEnabled(!cruiseController.cruiseEnabled);
         }
     }
@@ -430,8 +451,26 @@ public class BasicWheelVehicleController : MonoBehaviour
         RemoteEcall = false;
     }
 
+    // 비상 정차 도중 운전자 개입: 비상 제어를 풀고 키보드(수동) 운전으로 넘깁니다.
+    public void BeginDriverTakeover()
+    {
+        ClearEmergencyControl();
+        SetManualMode();
+        if (cruiseController != null)
+        {
+            cruiseController.SetEnabled(false);
+        }
+        DriverTakeoverActive = true;
+    }
+
+    public void EndDriverTakeover()
+    {
+        DriverTakeoverActive = false;
+    }
+
     public void ResetVehicle()
     {
+        EndDriverTakeover();
         EmergencyPullOverController emergencyController =
             GetComponent<EmergencyPullOverController>();
         if (emergencyController != null)

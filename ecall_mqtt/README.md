@@ -41,7 +41,7 @@ PC (send_test_trigger.py)              Pi (Mosquitto + ecall_service.py)        
 - 심박: 모든 모델 패킷에서 맥박 상태와 심박을 기록한다.
   - `hr_bpm`(현재 심박): 모델이 확인한 `bio_hr`. 맥박 소실 중이면 비운다(멈춘 심장을 뛰는 것처럼 보내지 않음).
   - `pulse_status`: `detected` / `not_detected_unconfirmed` / `not_detected_confirmed` / `unknown`. 알림 문장은 "맥박 미검출(센서 기준, 미확정)"처럼 센서 판단임을 밝히고 사망으로 단정하지 않는다.
-  - `hr_last_bpm`, `hr_last_age_s`, `hr_last_source`, `hr_last_verified`: 맥박이 잡히던 동안의 마지막 심박. ECG 봉우리 심박(`bio_display_hr`, 모델 미검증)이 변화를 빨리 따라가므로 먼저 쓴다. 모델이 맥박 소실을 표시하기까지 약 0.6초 걸리므로(E4: 세동 7.5초 → `HEART_PAUSE` 8.11초) 소실 감지 0.5초 이전 값을 쓴다. E4 결과: 193 bpm(심실빈맥).
+  - `hr_last_bpm`, `hr_last_age_s`, `hr_last_source`, `hr_last_verified`: 맥박이 잡히던 동안의 마지막 심박. ECG 봉우리 심박(`bio_display_hr`, 모델 미검증)이 변화를 빨리 따라가므로 먼저 쓴다. 모델이 맥박 소실을 표시하기까지 약 0.6초, 생체 판정 주기(1초) 때문에 최대 약 1초 걸리므로(E4: 세동 7.5초 → `HEART_PAUSE` 8.07~8.11초) 소실 감지 1초 이전 값을 쓴다. 시간 비교는 모델 분석 시각(`source_timestamp`) 기준이다(차량 서버가 같은 판단을 20 Hz로 다시 보내므로 받은 시각은 쓰지 않음). E4 결과: 188 bpm(심실빈맥), 녹화 재생·실시간 모두 같음.
   - 의식이 없어도 맥박이 있으면 현재 심박을 그대로 보낸다(예: `35 bpm (심한 서맥)`). 빈맥·서맥 표시는 숫자 구간만 보고 붙이는 참고값이다.
 - 전송 시점: Unity는 0.8 km/h 이하에서 `Stopped`를 보내고 그때부터 제동한다. 그래서 `Stopped` 직후가 아니라 **속도 0이 0.5초 이어진 뒤**(최대 3초 대기) 최종 정차 위치로 보낸다.
 - 위치: MSD `position.unity`에 Unity 좌표 `{x, y, z}`(m, 소수 둘째 자리)를 넣고, 알림 문장에 `위치(Unity) : X …, Y …, Z … (m)`로 표시한다. MSD 형식상 필요한 위경도는 Unity 좌표를 기준 위경도(`--ecall-lat/--ecall-lon`)에 더한 **가상 값**(`confidence: simulated`)으로 함께 넣는다. (Unity 좌표 표시는 Pi의 `msd.py`가 하므로 Pi에도 새 `msd.py`가 있어야 한다.)

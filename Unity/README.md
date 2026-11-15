@@ -202,6 +202,16 @@ SignalAndSlow -> MoveToShoulder -> StraightenAndBrake -> Stopped
 
 급조향으로 횡속도가 생기면 예상 정지 위치를 반영해 목표 지점 전에 반대 조향을 시작합니다. 도로 경계를 넘을 것으로 예측되더라도 잔디 지면 위에서 갓길 복귀를 계속 시도합니다. 지면에서 크게 이탈하거나 진행 방향을 잃으면 `StopInPlace -> Stopped`로 전환해 조향을 유지하며 현재 위치에서 제동합니다. 정차 시 차량 위치·방향을 강제로 옮기지 않습니다. `Stopped`에서는 브레이크, `hazard=true`, 비상등 점멸, `ecall=true`가 유지됩니다. 다시 시험하려면 Python에서 `state normal`을 보낸 뒤 Unity에서 R을 누릅니다.
 
+#### 운전자 개입 (정차 도중 주도권 넘김)
+
+`Stopped` 전(`SignalAndSlow`·`MoveToShoulder`·`StraightenAndBrake`·`StopInPlace`)에 운전자가 깨어나 직접 조작하면 비상 정차를 멈추고 운전자에게 넘깁니다.
+
+- 조건: 최신 운전자 판단이 Danger가 아님(눈을 뜨고 자세가 돌아옴) **그리고** W/S/A/D·방향키·Space 입력이 `takeoverInputThreshold`(0.5) 이상으로 `takeoverHoldSeconds`(0.3초) 이어짐. 눈만 뜨는 것으로는 넘기지 않습니다.
+- 넘긴 뒤: 비상등 끔, Cruise 끄고 수동(키보드) 운전. HUD에 `비상 정차  취소 - 운전자 주도권`. 이 동안 Python의 cruise/remote 명령은 적용하지 않습니다(운전자 조작 유지). R 리셋, M/C 키, 새 Danger로 해제됩니다.
+- `Stopped` 이후에는 넘기지 않습니다(기존대로 R 리셋).
+- `vehicle_state`에 `driver_takeover`, `driver_takeover_count`, `driver_takeover_phase`를 보냅니다. e-Call(`ecall_mqtt`)은 정차가 끝나기 전에 넘겨받으면 e-Call을 보내지 않고 기록만 남깁니다.
+- Inspector `EmergencyPullOverController`의 `allowDriverTakeover`를 끄면 기존 동작(정차 고정)으로 돌아갑니다.
+
 비상 상황과 별개로 표시만 확인하려면 Python 콘솔에서 `hazard on`과 `hazard off`를 입력합니다. Cruise/Manual/Remote 어느 일반 제어 모드에서도 동작하며, Danger 비상 제어 중에는 안전상 외부 `hazard off`보다 비상 점멸이 우선합니다.
 
 ## 키보드 조작
