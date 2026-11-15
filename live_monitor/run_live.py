@@ -166,6 +166,8 @@ def build_parser():
     ap.add_argument('--no-response-stop', type=float, default=3.0,
                     help='실시간 전용: 눈 감김 경고가 Unity 로 전달된 뒤 이 시간(초) 동안 눈을 뜨지 않으면 Danger(정차). '
                          '원본은 눈 감김만으로 정차하지 않는다. 0 이면 원본 그대로')
+    ap.add_argument('--media-outbox', type=Path, default=REPO / 'ecall_mqtt' / 'media_outbox',
+                    help='주의·위험 첫 장면 사진을 사건별로 저장하는 폴더. 차량 서버(e-Call)가 정차 후 Pi 로 올려 MSD 에 링크를 넣는다')
     ap.add_argument('--auto-recalibrate', type=float, default=2.0,
                     help='자세 기준이 없을 때, 정상 상태로 얼굴·어깨·엉덩이가 이 시간(초) 이상 보이면 자동으로 다시 보정. 0 이면 끔')
     ap.add_argument('--warmup-seconds', type=float, default=None,
@@ -289,6 +291,14 @@ def main(argv=None) -> int:
     live = dict(bio=None, processor=None, vision=None, pose_frames=0, frames=0, posture_ok=None, warned=False)
     bio_history: list = []
     auto_recal = dict(last=-1e9, count=0)
+    snaps = dict(caution=None, saved=set())     # 주의 첫 장면 (판단 시각, JPEG), 사진을 저장한 Danger 사건
+
+    def save_snapshot(event_id, kind, data):
+        folder = Path(args.media_outbox) / str(event_id)
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / f'{kind}.jpg').write_bytes(data)
+        (out / 'evidence').mkdir(exist_ok=True)
+        (out / 'evidence' / f'{event_id}_{kind}.jpg').write_bytes(data)
     print(f'[LIVE] 판단 결과 송신: {args.unity_host}:{server.port} (차량 서버 --model-port 로 연결)', flush=True)
     for key, v in live_overrides.items():
         print(f'[LIVE] 실시간 설정: {key} {v["original"]} → {v["live"]}', flush=True)
@@ -423,6 +433,20 @@ def main(argv=None) -> int:
             packet = vehicle_control_packet(d, recorder.counts['processed'] + 1, clip_id=CLIP_ID)
             recorder.packet(packet)
             state = d.state.value
+            # 사진: 주의가 시작된 장면을 기억해 두고, Danger 사건이 생기면 그 사건 id 로 주의·위험 사진을 저장
+            if state == 'caution' and prev_state != 'caution':
+                ok_jpg, enc = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                if ok_jpg:
+                    snaps['caution'] = (t, enc.tobytes())
+            danger_id = ((d.metadata.get('monitoring_output') or {}).get('danger') or {}).get('event_id')
+            if state == 'danger' and danger_id and danger_id not in snaps['saved']:
+                snaps['saved'].add(danger_id)
+                ok_jpg, enc = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                if ok_jpg:
+                    save_snapshot(danger_id, 'danger', enc.tobytes())
+                if snaps['caution'] is not None and t - snaps['caution'][0] <= 120:
+                    save_snapshot(danger_id, 'caution', snaps['caution'][1])
+                print(f'[LIVE] 사진 저장: 사건 {danger_id} (위험' + (', 주의' if snaps['caution'] else '') + ')', flush=True)
             if state != prev_state:
                 print(f'[LIVE] {t:7.2f}s 상태 {prev_state} → {state}  사유={list(d.reasons)[:4]}', flush=True)
                 prev_state = state

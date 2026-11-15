@@ -97,6 +97,10 @@ def parse_ecall_args(argv):
     ap.add_argument("--ecall-lat", type=float, default=35.8468, help="Unity 원점의 가상 위도")
     ap.add_argument("--ecall-lon", type=float, default=127.1294, help="Unity 원점의 가상 경도")
     ap.add_argument("--ecall-log", type=Path, default=HERE / "ecall_requests.jsonl")
+    ap.add_argument("--ecall-media", type=Path, default=None,
+                    help="주의·위험 사진 폴더(caution.jpg, danger.jpg). 녹화 재생에서 --recording 을 주면 그 evidence 폴더를 자동 사용")
+    ap.add_argument("--ecall-media-outbox", type=Path, default=HERE / "media_outbox",
+                    help="실시간 모니터가 사건별 사진을 저장하는 폴더 (live_monitor/run_live.py 와 같아야 함)")
     ap.add_argument("--monitor-min-speed", type=float, default=10.0,
                     help="이 속도(km/h) 이상으로 2초 주행하면 운전자 감시 켬, 3 km/h 이하로 3초 서 있으면 끔. "
                          "정차 중에는 비전 경고·정차를 보내지 않음(생체 위험이 확인된 Danger 만). 0 이면 항상 감시")
@@ -114,11 +118,18 @@ def main():
     args, rest = parse_ecall_args(sys.argv[1:])
     entry = importlib.import_module(ENTRIES[args.ecall_entry])
     vehicle_id = json.loads(args.ecall_config.read_text(encoding="utf-8"))["vehicle_id"]
+    media_dir = args.ecall_media
+    if media_dir is None and "--recording" in rest:
+        i = rest.index("--recording")
+        if i + 1 < len(rest):
+            media_dir = Path(rest[i + 1]) / "evidence"
     link = EcallLink(broker=args.ecall_broker, port=args.ecall_port, vehicle_id=vehicle_id,
-                     base_lat=args.ecall_lat, base_lon=args.ecall_lon, log_path=args.ecall_log)
+                     base_lat=args.ecall_lat, base_lon=args.ecall_lon, log_path=args.ecall_log,
+                     media_outbox=args.ecall_media_outbox, media_dir=media_dir)
     link.start()
     print(f"[ECALL] 정차(Stopped) 시 {link.trigger_topic} → {args.ecall_broker}:{args.ecall_port}  "
           f"기록: {args.ecall_log}")
+    print(f"[ECALL] 사진: {args.ecall_media_outbox} (실시간)" + (f", {media_dir} (녹화)" if media_dir else ""))
     gate = DrivingGate(on_speed_kph=args.monitor_min_speed, enabled=args.monitor_min_speed > 0)
     if gate.enabled:
         print(f"[GATE] 시속 {args.monitor_min_speed:g}km 이상 주행할 때만 운전자 감시 (지금: 정차 → 감시 꺼짐)")

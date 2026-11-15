@@ -126,6 +126,18 @@ py send_test_trigger.py --broker 192.168.0.64 --direct
 python3 send_test_trigger.py --broker localhost
 ```
 
+## 주의·위험 사진 (MSD 링크)
+
+정차 후 e-Call 을 보낼 때 PC 가 사진을 먼저 Pi 로 올리고(`ecall/<VIN>/media/<event_id>/<caution|danger>`, JPEG),
+Pi 의 `ecall_service.py` 가 `media/<event_id>/` 에 저장한 뒤 **같은 공유기 안에서만 열리는 웹 서버(8080)**로 보여 준다.
+MSD 에는 `media.caution_photo_url`, `media.danger_photo_url`, 알림 문장에는 `사진(주의) : http://<Pi>:8080/...` 가 들어간다.
+
+- 녹화 재생: 분석 결과의 `evidence/caution.jpg`, `danger.jpg` (`--recording` 을 주면 자동, 또는 `--ecall-media <폴더>`)
+- 실시간: `live_monitor/run_live.py` 가 주의 시작 장면과 첫 Danger 장면을 `ecall_mqtt/media_outbox/<모델 Danger 사건 id>/` 에 저장
+- 사진이 없으면 지금처럼 글자 정보만 보낸다. 폰은 Pi 와 같은 Wi-Fi 여야 링크가 열린다.
+- 비밀번호 없는 시연용 링크다(폴더 목록은 막음). 다른 사람이 쓰는 공유기에서는 쓰지 말 것.
+- Pi 설정(`config.json`, 선택): `media_http_port`(기본 8080), `media_base_url`(기본: Pi 의 LAN 주소 자동), `media_dir`(기본 `media`)
+
 ## 시나리오 예시
 
 | 코드 | 사유(reason) | 심박 |

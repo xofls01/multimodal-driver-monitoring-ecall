@@ -3,3 +3,5 @@ ecall_requests.jsonl
 # Pi 의 전송 기록 DB
 ecall_log.db
 __pycache__/
+media_outbox/
+media/
