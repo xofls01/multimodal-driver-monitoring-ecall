@@ -1,0 +1,16 @@
+{
+  "broker_host": "localhost",
+  "broker_port": 1883,
+  "vehicle_id": "VIN-TEST-0001",
+  "vehicle": {
+    "type": "passenger",
+    "model": "TEST-MODEL",
+    "vin": "TESTVIN0000000001",
+    "plate": "00가0000"
+  },
+  "owner": {
+    "name": "테스트",
+    "phone": "010-0000-0000"
+  },
+  "time_sync": "rtc"
+}
