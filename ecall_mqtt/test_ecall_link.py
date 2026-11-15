@@ -318,6 +318,55 @@ class PureLogicTests(unittest.TestCase):
         self.assertEqual(validate_msd(build_msd(sent[0][1], CFG)), [])
 
 
+class DrivingGateTests(unittest.TestCase):
+    """정차 중에는 비전 경고·정차를 Unity 로 보내지 않는다 (생체 위험이 확인된 Danger 만 예외)."""
+
+    def make(self):
+        from drive_gate import DrivingGate
+        t = [0.0]
+        gate = DrivingGate(clock=lambda: t[0], log=lambda *a: None)
+        def drive(speed, seconds, phase="Idle"):
+            for _ in range(int(seconds / 0.05)):
+                t[0] += 0.05
+                gate.on_vehicle_state({"speed_kph": speed, "emergency_phase": phase})
+        return gate, drive
+
+    def test_stopped_suppresses_vision_alerts_but_keeps_bio_danger(self):
+        gate, drive = self.make()
+        drive(0.0, 5)                                                   # 시동만 켜고 정차
+        self.assertFalse(gate.driving)
+        self.assertEqual(gate.filter("Caution", {"stop_basis": "warning_from_available_source"}), "Normal")
+        self.assertEqual(gate.filter("Danger", {"stop_basis": "live_no_response_after_eye_closure_warning"}), "Normal")
+        self.assertEqual(gate.filter(None, {}), "Normal")              # 판단 불가도 경고 없음
+        bio = {"stop_basis": "biosignal_alert_and_observed_posture_or_eye_closure"}
+        self.assertEqual(gate.filter("Danger", bio), "Danger")          # 맥박 소실 + 쓰러짐/눈 감김
+
+    def test_driving_with_hysteresis(self):
+        gate, drive = self.make()
+        drive(30.0, 1.0)
+        self.assertFalse(gate.driving)                                  # 2초 전
+        drive(30.0, 1.2)
+        self.assertTrue(gate.driving)
+        self.assertEqual(gate.filter("Caution", {}), "Caution")
+        drive(5.0, 10)                                                  # 서행: 아직 주행
+        self.assertTrue(gate.driving)
+        drive(1.0, 2.0)
+        self.assertTrue(gate.driving)                                   # 3초 전
+        drive(1.0, 1.2)
+        self.assertFalse(gate.driving)
+
+    def test_emergency_in_progress_is_never_filtered(self):
+        gate, drive = self.make()
+        drive(30.0, 3)
+        drive(0.5, 5, phase="StraightenAndBrake")                       # 비상 정차로 감속·정지
+        self.assertEqual(gate.filter("Danger", {"stop_basis": "simulator_sustained_posture"}), "Danger")
+
+    def test_disabled_passes_everything(self):
+        from drive_gate import DrivingGate
+        gate = DrivingGate(enabled=False)
+        self.assertEqual(gate.filter("Caution", {}), "Caution")
+
+
 def free_port():
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))

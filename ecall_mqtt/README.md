@@ -22,6 +22,7 @@ PC (send_test_trigger.py)              Pi (Mosquitto + ecall_service.py)        
 | `send_test_trigger.py` | PC | 비전 대신 trigger를 보내는 테스트 도구 |
 | `ecall_link.py` | PC | Unity 정차(Stopped) → trigger 생성·발행 (Danger 사유·심박 포함, 한 번만) |
 | `run_vehicle_with_ecall.py` | PC | 통합본 차량 서버를 **수정 없이** e-Call 과 함께 실행 |
+| `drive_gate.py` | PC | 주행 중(시속 10km 이상)에만 운전자 감시 결과를 Unity 로 보냄. 정차 중에는 생체 위험이 확인된 Danger 만 |
 | `test_ecall_link.py` | PC | Unity·Pi 없이 연결 시험 |
 
 ## 통합본과 연결 (비전 + 생체신호 → Unity 갓길 정차 → e-Call)

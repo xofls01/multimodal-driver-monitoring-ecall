@@ -60,6 +60,19 @@ py -B ecall_mqtt\run_vehicle_with_ecall.py --ecall-broker 192.168.0.64 --model-p
 원본 모델은 눈 감김만으로는 정차하지 않는다("Eye stop remains disabled until separately validated").
 `--no-response-stop 0`이면 원본대로. 무응답 타이머는 차량 서버가 연결돼(경고가 Unity로 실제 전달될 때) 있을 때만 센다.
 
+### 주행 중에만 감시 (정차 중 경고·정차 없음)
+
+차량 서버(`ecall_mqtt/run_vehicle_with_ecall.py`, `drive_gate.py`)가 Unity 속도를 보고 거른다.
+
+- 시속 10km 이상 2초 → 감시 켬 / 시속 3km 이하 3초 → 감시 끔 (처음 시작은 '정차').
+  `--monitor-min-speed 0`이면 항상 감시.
+- 정차 중: 모델 판단이 주의·Danger·판단 불가여도 Unity 에는 Normal (경고음·비상 정차 없음).
+  단 **생체 위험이 비전으로 확인된 Danger**(맥박 소실·심박 40 이하/131 이상 + 쓰러진 자세/눈 감김 3초)는
+  그대로 보내 제자리 정차 → e-Call.
+- 핸들을 놓거나 센서가 떨어져 맥박이 안 잡히는 것은 원본 생체 모델에서 '판단 불가'(SENSOR_LOST 등)이지
+  맥박 소실이 아니므로 e-Call 로 이어지지 않는다(실시간 기록 5회, 약 17분 동안 생체 '위험' 판정 0회).
+- 비상 정차가 진행 중이면(감속해 서는 중) 거르지 않는다.
+
 ### 자세 기준과 자동 재보정
 
 원본 모델은 보정할 때 **어깨와 엉덩이가 모두 보이는 장면**에서만 고개 높이·몸통 각도 기준을 모은다.
