@@ -19,7 +19,9 @@ def build_msd(trigger, cfg):
     }
     if isinstance(unity, dict):                              # 시뮬레이터(Unity) 좌표(m)
         position["unity"] = {k: unity.get(k) for k in ("x", "y", "z")}
-    return {
+    urls = trigger.get("media_urls") or {}                   # Pi 가 받은 사진의 링크 (ecall_service.py)
+    media = {f"{k}_photo_url": urls[k] for k in MEDIA_KINDS if isinstance(urls.get(k), str)}
+    msd = {
         "msd_version": MSD_VERSION,
         "msd_id": str(uuid.uuid4()),
         "test_call": True,                                   # 항상 테스트 표시
@@ -38,6 +40,14 @@ def build_msd(trigger, cfg):
             **{k: trigger[k] for k in VITAL_KEYS if k in trigger},
         },
     }
+    if media:
+        msd["media"] = media
+    return msd
+
+
+# 사진 종류: 주의(Caution) 첫 장면, 위험(Danger) 첫 장면
+MEDIA_KINDS = ("caution", "danger")
+MEDIA_KO = {"caution": "사진(주의)", "danger": "사진(위험)"}
 
 
 # 맥박 상태와 마지막 확인 심박 (PC ecall_link.VitalsTracker 가 만든다)
@@ -108,6 +118,10 @@ def format_msd_text(m):
     conf = "시뮬레이션" if pos.get("confidence") == "simulated" else pos.get("confidence", "")
     how = "자동 발신" if m["activation"] == "automatic" else "수동 발신"
     head = "[테스트] e-Call 긴급 알림" if m.get("test_call") else "e-Call 긴급 알림"
+    media = m.get("media") or {}
+    photo_lines = [f"{MEDIA_KO[k]} : {media[k + '_photo_url']}" for k in MEDIA_KINDS if media.get(k + "_photo_url")]
+    if photo_lines:
+        photo_lines.insert(0, "")
     unity = pos.get("unity") or {}
     if unity:
         def c(v):
@@ -127,6 +141,7 @@ def format_msd_text(m):
         *place,
         f"지도 : https://www.google.com/maps?q={pos['lat']},{pos['lon']}",
         f"진행 방향 : {direction}",
+        *photo_lines,
         "",
         f"차량 : {v.get('model')} / {v.get('plate')}",
         f"차주 : {o.get('name')} ({o.get('phone')})",
@@ -176,4 +191,12 @@ def validate_msd(m):
     age = ds.get("hr_last_age_s")
     if age is not None and not (isinstance(age, (int, float)) and age >= 0):
         errs.append(f"마지막 심박 시각 오류: {age}")
+    media = m.get("media")
+    if media is not None:
+        if not isinstance(media, dict):
+            errs.append(f"사진 형식 오류: {media}")
+        else:
+            for k, url in media.items():
+                if not (isinstance(url, str) and url.startswith(("http://", "https://"))):
+                    errs.append(f"사진 링크 오류({k}): {url}")
     return errs

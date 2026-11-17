@@ -86,6 +86,9 @@ def _valid_hr(hr: Any) -> float | None:
 PULSE_LOST_CONFIRMED = {"NO_PULSE_CONFIRMED"}
 PULSE_LOST_UNCONFIRMED = {"NO_PULSE_UNCONFIRMED", "ABNORMAL_ECG_NO_PULSE", "HEART_PAUSE"}
 PULSE_LOST = PULSE_LOST_CONFIRMED | PULSE_LOST_UNCONFIRMED
+MEDIA_KINDS = ("caution", "danger")
+MEDIA_MAX_BYTES = 3_000_000    # Pi 의 ecall_service.py 와 같은 한도
+JPEG_MAGIC = bytes([0xFF, 0xD8])
 HR_MAX_AGE_S = 120.0    # 이보다 오래된 마지막 심박은 보내지 않음
 # 모델이 맥박 소실을 표시하기까지 걸리는 시간. E4 에서 세동 시작(7.5 s) → HEART_PAUSE(8.11 s) 약 0.6 s.
 # 그 사이 ECG 봉우리로 잰 숫자는 이미 부정맥 파형이므로, 소실 감지 시각에서 이만큼 앞선 값을 마지막 심박으로 쓴다.
@@ -215,8 +218,13 @@ class EcallLink:
                  base_lat: float, base_lon: float, log_path: Path | None = None,
                  publish: Callable[[str, str], None] | None = None,
                  settle_hold_s: float = SETTLE_HOLD_S, settle_timeout_s: float = SETTLE_TIMEOUT_S,
-                 clock: Callable[[], float] = time.monotonic) -> None:
+                 clock: Callable[[], float] = time.monotonic,
+                 media_outbox: Path | None = None, media_dir: Path | None = None) -> None:
         self.broker, self.port, self.vehicle_id = broker, port, vehicle_id
+        # 사진: media_outbox/<모델 Danger event_id>/<caution|danger>.jpg (사건별),
+        #       없으면 media_dir/<caution|danger>.jpg (녹화 재생: 분석 결과의 evidence 폴더)
+        self.media_outbox, self.media_dir = media_outbox, media_dir
+        self.media_topic = f"ecall/{vehicle_id}/media"
         self.settle_hold_s, self.settle_timeout_s, self._clock = settle_hold_s, settle_timeout_s, clock
         self._pending_since: float | None = None   # Stopped 를 받은 시각 (완전 정차 대기 중)
         self._still_since: float | None = None     # 속도 0 이 시작된 시각
@@ -357,6 +365,11 @@ class EcallLink:
             self._danger = None             # 다음 비상은 새 근거로
             self._sent[trigger["event_id"]] = now
             self.sent_triggers.append(trigger)
+        media = self._find_media(trigger.get("model_event_id"))
+        for kind, data in media.items():           # 사진을 trigger 보다 먼저 (Pi 는 받은 순서대로 처리)
+            self._publish(f"{self.media_topic}/{trigger['event_id']}/{kind}", data)
+        if media:
+            trigger["media"] = sorted(media)
         self._publish(self.trigger_topic, json.dumps(trigger, ensure_ascii=False))
         self._log({"type": "trigger", **trigger})
         u = trigger["unity_position"]
@@ -367,6 +380,24 @@ class EcallLink:
               f"({trigger.get('hr_last_age_s')}초 전) "
               f"Unity 위치=(X {u['x']}, Y {u['y']}, Z {u['z']})")
         return trigger
+
+    def _find_media(self, model_event_id: str | None) -> dict[str, bytes]:
+        found: dict[str, bytes] = {}
+        folders = []
+        if self.media_outbox is not None and model_event_id:
+            folders.append(Path(self.media_outbox) / str(model_event_id))
+        if self.media_dir is not None:
+            folders.append(Path(self.media_dir))
+        for kind in MEDIA_KINDS:
+            for folder in folders:
+                try:
+                    data = (folder / f"{kind}.jpg").read_bytes()
+                except OSError:
+                    continue
+                if data[:2] == JPEG_MAGIC and len(data) <= MEDIA_MAX_BYTES:
+                    found[kind] = data
+                    break
+        return found
 
     def _log(self, record: dict) -> None:
         if self.log_path is None:

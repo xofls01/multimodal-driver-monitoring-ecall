@@ -20,6 +20,7 @@ def topics(vehicle_id):
         "text": f"{base}/text",         # Pi → 폰 : 같은 내용을 사람이 읽기 좋은 글로
         "result": f"{base}/result",     # Pi → PC : 전송 결과
         "status": f"{base}/status",     # Pi → 폰 : online / offline (LWT)
+        "media": f"{base}/media",       # PC → Pi : 사진 (…/media/<event_id>/<caution|danger>, JPEG 바이트)
     }
 
 

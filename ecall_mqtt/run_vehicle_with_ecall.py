@@ -87,6 +87,8 @@ def parse_ecall_args(argv):
     ap.add_argument("--ecall-lat", type=float, default=35.8468, help="Unity 원점의 가상 위도")
     ap.add_argument("--ecall-lon", type=float, default=127.1294, help="Unity 원점의 가상 경도")
     ap.add_argument("--ecall-log", type=Path, default=HERE / "ecall_requests.jsonl")
+    ap.add_argument("--ecall-media", type=Path, default=None,
+                    help="주의·위험 사진 폴더(caution.jpg, danger.jpg). 녹화 재생에서 --recording 을 주면 그 evidence 폴더를 자동 사용")
     ap.add_argument("--ecall-entry", choices=ENTRIES, default="vehicle",
                     help="vehicle: vehicle_tcp_server.py, play_can: play_can_model.py")
     return ap.parse_known_args(argv)
@@ -96,16 +98,24 @@ def main():
     if any(a in ("-h", "--help") for a in sys.argv[1:]):
         print(__doc__)
         print("e-Call 옵션: --ecall-broker IP (필수), --ecall-port, --ecall-config, --ecall-lat, --ecall-lon, "
-              "--ecall-log, --ecall-entry {vehicle,play_can}")
+              "--ecall-log, --ecall-entry {vehicle,play_can}, --ecall-media")
         return
     args, rest = parse_ecall_args(sys.argv[1:])
     entry = importlib.import_module(ENTRIES[args.ecall_entry])
     vehicle_id = json.loads(args.ecall_config.read_text(encoding="utf-8"))["vehicle_id"]
+    media_dir = args.ecall_media
+    if media_dir is None and "--recording" in rest:
+        i = rest.index("--recording")
+        if i + 1 < len(rest):
+            media_dir = Path(rest[i + 1]) / "evidence"
     link = EcallLink(broker=args.ecall_broker, port=args.ecall_port, vehicle_id=vehicle_id,
-                     base_lat=args.ecall_lat, base_lon=args.ecall_lon, log_path=args.ecall_log)
+                     base_lat=args.ecall_lat, base_lon=args.ecall_lon, log_path=args.ecall_log,
+                     media_dir=media_dir)
     link.start()
     print(f"[ECALL] 정차(Stopped) 시 {link.trigger_topic} → {args.ecall_broker}:{args.ecall_port}  "
           f"기록: {args.ecall_log}")
+    if media_dir:
+        print(f"[ECALL] 주의·위험 사진: {media_dir} (정차 후 e-Call 과 함께 Pi 로 올리고 MSD 에 링크)")
     restore = install_hooks(link, extra_modules=[entry])
     sys.argv = [str(entry.__file__), *rest]
     try:
