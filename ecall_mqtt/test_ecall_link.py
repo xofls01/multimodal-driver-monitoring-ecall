@@ -264,6 +264,71 @@ class PureLogicTests(unittest.TestCase):
         self.assertEqual(validate_msd(build_msd(sent[0][1], CFG)), [])
 
 
+class MediaTests(unittest.TestCase):
+    """주의·위험 사진: PC 가 trigger 보다 먼저 Pi 로 올리고, Pi 는 MSD 에 링크를 넣는다."""
+
+    def setUp(self):
+        p = patch("builtins.print"); p.start(); self.addCleanup(p.stop)
+        import tempfile
+        tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+
+    def link(self, **kw):
+        sent = []
+        link = EcallLink(broker="test", vehicle_id=CFG["vehicle_id"], base_lat=35.8468, base_lon=127.1294,
+                         publish=lambda topic, payload: sent.append((topic, payload)), settle_hold_s=0.0, **kw)
+        return link, sent
+
+    def stop(self, link, packet=DANGER_PACKET):
+        link.on_model_packet(packet)
+        for ph in ["SignalAndSlow", "MoveToShoulder", "Stopped"]:
+            link.on_vehicle_state(vstate(ph))
+
+    def test_live_outbox_photos_sent_before_trigger(self):
+        jpg = bytes([0xFF, 0xD8]) + b"live"
+        folder = self.root / "outbox" / "danger-0001"
+        folder.mkdir(parents=True)
+        (folder / "danger.jpg").write_bytes(jpg)
+        (folder / "caution.jpg").write_bytes(jpg)
+        link, sent = self.link(media_outbox=self.root / "outbox")
+        self.stop(link)
+        topics = [t for t, _ in sent]
+        trig = json.loads(sent[-1][1])
+        eid = trig["event_id"]
+        self.assertEqual(topics, [f"ecall/{CFG['vehicle_id']}/media/{eid}/caution",
+                                  f"ecall/{CFG['vehicle_id']}/media/{eid}/danger",
+                                  f"ecall/{CFG['vehicle_id']}/trigger"])
+        self.assertEqual(sent[0][1], jpg)
+        self.assertEqual(trig["media"], ["caution", "danger"])
+
+    def test_replay_evidence_folder_and_bad_files(self):
+        ev = self.root / "evidence"
+        ev.mkdir()
+        (ev / "danger.jpg").write_bytes(bytes([0xFF, 0xD8]) + b"x")
+        (ev / "caution.jpg").write_bytes(b"not a jpeg")
+        link, sent = self.link(media_dir=ev)
+        self.stop(link)
+        self.assertEqual([t.rsplit("/", 1)[-1] for t, _ in sent], ["danger", "trigger"])
+
+    def test_no_media_configured_sends_only_trigger(self):
+        link, sent = self.link()
+        self.stop(link)
+        self.assertEqual(len(sent), 1)
+        self.assertNotIn("media", json.loads(sent[0][1]))
+
+    def test_msd_text_has_photo_links(self):
+        trig = build_trigger(vstate("Stopped"), None, base_lat=35.8468, base_lon=127.1294)
+        trig["media_urls"] = {"caution": "http://192.168.0.64:8080/e1/caution.jpg",
+                              "danger": "http://192.168.0.64:8080/e1/danger.jpg"}
+        msd = build_msd(trig, CFG)
+        self.assertEqual(validate_msd(msd), [])
+        self.assertEqual(msd["media"]["danger_photo_url"], "http://192.168.0.64:8080/e1/danger.jpg")
+        text = format_msd_text(msd)
+        self.assertIn("사진(주의) : http://192.168.0.64:8080/e1/caution.jpg", text)
+        self.assertIn("사진(위험) : http://192.168.0.64:8080/e1/danger.jpg", text)
+        self.assertNotIn("media", build_msd(build_trigger(vstate("Stopped"), None, base_lat=0, base_lon=0), CFG))
+
+
 def free_port():
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
