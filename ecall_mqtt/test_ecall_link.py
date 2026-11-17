@@ -82,46 +82,52 @@ class PureLogicTests(unittest.TestCase):
         self.assertEqual(validate_msd(msd), [])
         self.assertIn("위치 : 35.80000, 127.10000", format_msd_text(msd))
 
-    def _packet(self, state, *, bio_hr=None, disp=None, bio_reasons=(), reasons=()):
+    def _packet(self, state, *, bio_hr=None, disp=None, bio_reasons=(), reasons=(), src=None):
         return {"type": "vehicle_control", "fusion_state": state, "driver_state": state.capitalize(),
+                **({"source_timestamp": src} if src is not None else {}),
                 "clip_id": "E4", "bio_hr": bio_hr, "bio_display_hr": disp,
                 "bio_display_hr_source": "recent_ecg_peaks" if disp else None, "bio_display_hr_verified": False,
                 "bio_reasons": list(bio_reasons), "reasons": list(reasons),
                 "monitoring": {"danger": {"event_id": "e4-danger"}}}
 
     def test_pulse_lost_sends_last_hr_before_collapse_not_as_current(self):
-        """E4 처럼 빈맥(ECG 193 bpm) → 심장 멈춤 의심 → 맥박 미검출: 현재 심박은 비우고 마지막 심박을 따로 보냄."""
+        """E4(실시간 실행에서 받은 값 그대로): 빈맥 ECG 188~193 → 세동 시작(113.5) → HEART_PAUSE → 맥박 미검출.
+        현재 심박은 비우고, 소실 감지 1초 전의 값을 마지막 심박으로. 차량 서버가 같은 판단을 20 Hz 로 다시 보내도
+        (받은 시각이 늘어나도) 결과가 같아야 한다."""
         t = [0.0]
         link, sent = fake_link(clock=lambda: t[0])
         timeline = [
-            (1.5, self._packet("normal", disp=74.2, bio_reasons=["CALIBRATING"])),
-            (5.1, self._packet("caution", bio_hr=74.5, disp=101.6)),
-            (7.6, self._packet("caution", bio_hr=74.5, disp=193.4)),
-            (7.9, self._packet("caution", bio_hr=74.5, disp=113.5)),     # 세동 시작, 모델은 아직 모름
-            (8.1, self._packet("caution", disp=113.5, bio_reasons=["HEART_PAUSE"])),
-            (10.1, self._packet("caution", disp=205.2, bio_reasons=["HOLD_PREVIOUS_LEVEL"])),   # 세동 파형 숫자
-            (11.1, self._packet("danger", bio_reasons=["HOLD_PREVIOUS_LEVEL"],
+            (1.5, self._packet("normal", disp=74.2, bio_reasons=["CALIBRATING"], src=1.5)),
+            (5.1, self._packet("caution", bio_hr=74.5, disp=101.6, src=5.1)),
+            (7.06, self._packet("caution", bio_hr=74.1, disp=188.5, src=7.06)),
+            (7.63, self._packet("caution", bio_hr=74.1, disp=193.4, src=7.63)),
+            (7.97, self._packet("caution", bio_hr=74.1, disp=113.5, src=7.97)),   # 세동 시작, 모델은 아직 모름
+            (8.07, self._packet("caution", disp=113.5, bio_reasons=["HEART_PAUSE"], src=8.07)),
+            (10.1, self._packet("caution", disp=205.2, bio_reasons=["HOLD_PREVIOUS_LEVEL"], src=10.1)),  # 세동 파형
+            (11.1, self._packet("danger", bio_reasons=["HOLD_PREVIOUS_LEVEL"], src=11.1,
                                 reasons=["VISION:collapse_posture", "BIO:HOLD_PREVIOUS_LEVEL"])),
-            (15.7, self._packet("danger", bio_reasons=["NO_PULSE_UNCONFIRMED", "HOLD_PREVIOUS_LEVEL"],
+            (15.7, self._packet("danger", bio_reasons=["NO_PULSE_UNCONFIRMED", "HOLD_PREVIOUS_LEVEL"], src=15.7,
                                 reasons=["VISION:collapse_posture", "BIO:NO_PULSE_UNCONFIRMED"])),
         ]
         for at, packet in timeline:
-            t[0] = at; link.on_model_packet(packet)
+            for k in range(6):                                          # 20 Hz 재전송: 같은 분석 시각, 받은 시각만 증가
+                t[0] = at + 0.05 * k
+                link.on_model_packet(packet)
         t[0] = 25.0
         for ph in ["SignalAndSlow", "MoveToShoulder", "Stopped"]:
             link.on_vehicle_state(vstate(ph))
         trig = sent[0][1]
         self.assertIsNone(trig["hr_bpm"])                                   # 맥박 없음 → 현재 심박 없음
         self.assertEqual(trig["pulse_status"], "not_detected_unconfirmed")
-        self.assertEqual(trig["hr_last_bpm"], 193.4)    # 소실 감지 0.5초 전 값 (113.5·205 는 세동 파형 숫자)
-        self.assertEqual(trig["hr_last_age_s"], 17)
+        self.assertEqual(trig["hr_last_bpm"], 188.5)    # 8.07 - 1.0 이전 값 (113.5·205 는 세동 파형 숫자)
+        self.assertEqual(trig["hr_last_age_s"], 18)     # 처음 받은 시각(7.06) 기준
         self.assertEqual((trig["hr_last_source"], trig["hr_last_verified"]), ("ecg_peaks", False))
         self.assertEqual(trig["reason"], ["slumped_forward", "hr_missing"])
         msd = build_msd(trig, CFG)
         self.assertEqual(validate_msd(msd), [])
         text = format_msd_text(msd)
         self.assertIn("심박 : 현재 측정 안 됨 — 맥박 미검출(센서 기준, 미확정)", text)
-        self.assertIn("마지막 확인 심박 : 193 bpm (심한 빈맥, 정차 약 17초 전, ECG·미검증)", text)
+        self.assertIn("마지막 확인 심박 : 188 bpm (심한 빈맥, 정차 약 18초 전, ECG·미검증)", text)
         self.assertNotIn("사망", text)
 
     def test_unconscious_with_pulse_sends_current_hr(self):
@@ -137,6 +143,54 @@ class PureLogicTests(unittest.TestCase):
         text = format_msd_text(build_msd(trig, CFG))
         self.assertIn("심박 : 35 bpm (심한 서맥)", text)
         self.assertNotIn("마지막 확인 심박", text)
+
+    def test_driver_takeover_before_stop_sends_nothing_then_next_emergency_sends(self):
+        """정차 도중 운전자가 깨어나 주도권을 가져가면(Unity driver_takeover) e-Call 없음. 다음 비상은 정상 발송."""
+        link, sent = fake_link()
+        link.on_model_packet(DANGER_PACKET)
+        for ph in ["SignalAndSlow", "MoveToShoulder"]:
+            link.on_vehicle_state(vstate(ph))
+        takeover = dict(vstate("Idle", speed=30.0), driver_takeover=True, driver_takeover_count=1)
+        link.on_vehicle_state(takeover)
+        for _ in range(20):
+            link.on_vehicle_state(takeover)
+        self.assertEqual(sent, [])
+        self.assertEqual(link.takeovers, 1)
+        link.on_model_packet(DANGER_PACKET)                               # 다시 쓰러짐
+        for ph in ["SignalAndSlow", "MoveToShoulder", "Stopped"]:
+            link.on_vehicle_state(vstate(ph))
+        self.assertEqual(len(sent), 1)
+
+    def test_sensor_lost_or_implausible_hr_is_not_last_hr(self):
+        """2026-11-15 실시간 시험: 센서가 떨어진 동안 화면용 심박 2.1 bpm 이 마지막 심박으로 들어감 → 버린다."""
+        t = [0.0]
+        link, sent = fake_link(clock=lambda: t[0])
+        packets = [
+            (1.0, self._packet("normal", bio_hr=72.0, disp=73.0, src=1.0)),
+            (2.0, self._packet("normal", disp=2.8, src=2.0)),                              # 사람 심박 아님
+            (3.0, self._packet("caution", disp=2.1, bio_reasons=["SENSOR_LOST"], src=3.0)),
+            (4.0, self._packet("caution", disp=2.1, bio_reasons=["LOW_SIGNAL_QUALITY"], src=4.0,
+                               reasons=["VISION:eyes_closed", "VISION:eye_closure_no_response"])),
+        ]
+        for at, packet in packets:
+            t[0] = at
+            link.on_model_packet(packet)
+        link._danger = {"reasons": packets[-1][1]["reasons"]}
+        for ph in ["SignalAndSlow", "MoveToShoulder", "Stopped"]:
+            link.on_vehicle_state(vstate(ph))
+        trig = sent[0][1]
+        self.assertEqual(trig["hr_last_bpm"], 73.0)                     # 2.8·2.1 이 아니라 마지막 정상 값
+        self.assertEqual(trig["pulse_status"], "unknown")              # 센서 탈락: 맥박 유무 모름
+        self.assertIsNone(trig["hr_bpm"])
+
+    def test_no_response_reason_in_msd(self):
+        packet = dict(DANGER_PACKET, reasons=["VISION:eyes_closed", "VISION:eye_closure_no_response"])
+        link, sent = fake_link()
+        link.on_model_packet(packet)
+        for ph in ["SignalAndSlow", "MoveToShoulder", "Stopped"]:
+            link.on_vehicle_state(vstate(ph))
+        self.assertEqual(sent[0][1]["reason"], ["eyes_closed", "no_response"])
+        self.assertIn("사유 : 눈 감김, 경고 무응답", format_msd_text(build_msd(sent[0][1], CFG)))
 
     def test_already_stopped_unity_on_connect_does_not_send(self):
         """이전 실행에서 정차한 채 남아 있던 Unity 가 새 재생기에 붙으면 첫 상태부터 Stopped → 보내지 않음."""
@@ -327,6 +381,55 @@ class MediaTests(unittest.TestCase):
         self.assertIn("사진(주의) : http://192.168.0.64:8080/e1/caution.jpg", text)
         self.assertIn("사진(위험) : http://192.168.0.64:8080/e1/danger.jpg", text)
         self.assertNotIn("media", build_msd(build_trigger(vstate("Stopped"), None, base_lat=0, base_lon=0), CFG))
+
+
+class DrivingGateTests(unittest.TestCase):
+    """정차 중에는 비전 경고·정차를 Unity 로 보내지 않는다 (생체 위험이 확인된 Danger 만 예외)."""
+
+    def make(self):
+        from drive_gate import DrivingGate
+        t = [0.0]
+        gate = DrivingGate(clock=lambda: t[0], log=lambda *a: None)
+        def drive(speed, seconds, phase="Idle"):
+            for _ in range(int(seconds / 0.05)):
+                t[0] += 0.05
+                gate.on_vehicle_state({"speed_kph": speed, "emergency_phase": phase})
+        return gate, drive
+
+    def test_stopped_suppresses_vision_alerts_but_keeps_bio_danger(self):
+        gate, drive = self.make()
+        drive(0.0, 5)                                                   # 시동만 켜고 정차
+        self.assertFalse(gate.driving)
+        self.assertEqual(gate.filter("Caution", {"stop_basis": "warning_from_available_source"}), "Normal")
+        self.assertEqual(gate.filter("Danger", {"stop_basis": "live_no_response_after_eye_closure_warning"}), "Normal")
+        self.assertEqual(gate.filter(None, {}), "Normal")              # 판단 불가도 경고 없음
+        bio = {"stop_basis": "biosignal_alert_and_observed_posture_or_eye_closure"}
+        self.assertEqual(gate.filter("Danger", bio), "Danger")          # 맥박 소실 + 쓰러짐/눈 감김
+
+    def test_driving_with_hysteresis(self):
+        gate, drive = self.make()
+        drive(30.0, 1.0)
+        self.assertFalse(gate.driving)                                  # 2초 전
+        drive(30.0, 1.2)
+        self.assertTrue(gate.driving)
+        self.assertEqual(gate.filter("Caution", {}), "Caution")
+        drive(5.0, 10)                                                  # 서행: 아직 주행
+        self.assertTrue(gate.driving)
+        drive(1.0, 2.0)
+        self.assertTrue(gate.driving)                                   # 3초 전
+        drive(1.0, 1.2)
+        self.assertFalse(gate.driving)
+
+    def test_emergency_in_progress_is_never_filtered(self):
+        gate, drive = self.make()
+        drive(30.0, 3)
+        drive(0.5, 5, phase="StraightenAndBrake")                       # 비상 정차로 감속·정지
+        self.assertEqual(gate.filter("Danger", {"stop_basis": "simulator_sustained_posture"}), "Danger")
+
+    def test_disabled_passes_everything(self):
+        from drive_gate import DrivingGate
+        gate = DrivingGate(enabled=False)
+        self.assertEqual(gate.filter("Caution", {}), "Caution")
 
 
 def free_port():

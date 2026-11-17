@@ -1,0 +1,7 @@
+# 모델용 Python 환경 (torch 등, 각자 설치)
+.venv/
+# 실시간 실행 기록 (영상, ECG/PPG, 판단 기록)
+sessions/
+# ultralytics / matplotlib 캐시
+.runtime_cache/
+__pycache__/

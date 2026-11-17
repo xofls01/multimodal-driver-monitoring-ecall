@@ -40,6 +40,7 @@ REASON_MAP = {
     "VISION:eyes_closed": "eyes_closed",
     "VISION:repeated_long_closures": "eyes_closed",
     "VISION:eye_ratio_high": "eyes_closed",
+    "VISION:eye_closure_no_response": "no_response",   # live_monitor: 눈 감김 경고 후 무응답 정차
     "VISION:collapse_posture": "slumped_forward",
     "VISION:sustained_collapse_stop": "slumped_forward",
     "VISION:torso_lean": "body_tilt",
@@ -90,9 +91,19 @@ MEDIA_KINDS = ("caution", "danger")
 MEDIA_MAX_BYTES = 3_000_000    # Pi 의 ecall_service.py 와 같은 한도
 JPEG_MAGIC = bytes([0xFF, 0xD8])
 HR_MAX_AGE_S = 120.0    # 이보다 오래된 마지막 심박은 보내지 않음
-# 모델이 맥박 소실을 표시하기까지 걸리는 시간. E4 에서 세동 시작(7.5 s) → HEART_PAUSE(8.11 s) 약 0.6 s.
-# 그 사이 ECG 봉우리로 잰 숫자는 이미 부정맥 파형이므로, 소실 감지 시각에서 이만큼 앞선 값을 마지막 심박으로 쓴다.
-LOSS_GUARD_S = 0.5
+# 센서를 쓸 수 없다는 생체 사유. 이때는 맥박 유무를 알 수 없고, 화면용 심박도 잡음에서 나온 값일 수 있다
+# (2026-11-15 실시간 시험: 센서 탈락 중 화면용 심박 1.4~2.8 bpm 이 '마지막 심박'으로 들어감).
+SENSOR_UNUSABLE = {"SENSOR_LOST", "LOW_SIGNAL_QUALITY", "SIGNAL_STALE", "COLLECTING_SAMPLES", "OUTSIDE_RECORDING"}
+PLAUSIBLE_HR = (25.0, 250.0)   # 사람 심박으로 볼 수 있는 범위. 밖이면 측정 잡음으로 보고 버린다
+# 모델이 맥박 소실을 표시하기까지 걸리는 시간. E4 에서 세동 시작(7.5 s) → HEART_PAUSE(8.07~8.11 s) 약 0.6 s,
+# 생체 모니터는 1초마다 판정하므로 최대 약 1초 늦을 수 있다. 그 사이 ECG 봉우리로 잰 숫자(E4: 113.5)는 이미
+# 세동 파형이므로, 소실 감지 시각(모델 분석 시각 기준)에서 이만큼 앞선 값을 마지막 심박으로 쓴다.
+LOSS_GUARD_S = 1.0
+
+
+def _plausible_hr(hr: Any) -> float | None:
+    value = _valid_hr(hr)
+    return value if value is not None and PLAUSIBLE_HR[0] <= value <= PLAUSIBLE_HR[1] else None
 
 
 def _bio_reasons(packet: dict) -> set[str]:
@@ -109,6 +120,8 @@ class VitalsTracker:
       (예: 심실세동 파형의 봉우리)는 심박이 아니므로 기록하지 않는다.
     - ECG 봉우리로 잰 화면용 심박(bio_display_hr)이 모델 확인 심박보다 빨리 변화를 따라가므로 먼저 쓰고,
       그 값이 모델 검증을 거치지 않았다는 것(hr_last_verified=False)도 함께 보낸다.
+    - 시간 비교는 패킷의 source_timestamp(모델 분석 시각)로 한다. 차량 서버는 같은 판단을 초당 20번 다시
+      보내므로 받은 시각으로 비교하면 감지 지연 보정이 흔들린다. 경과 시간(hr_last_age_s)만 받은 시각으로 잰다.
     """
 
     def __init__(self) -> None:
@@ -123,34 +136,44 @@ class VitalsTracker:
     def update(self, packet: dict, now: float) -> None:
         reasons = _bio_reasons(packet)
         verified_hr = _valid_hr(packet.get("bio_hr"))
+        src = packet.get("source_timestamp")
+        if isinstance(src, bool) or not isinstance(src, (int, float)) or not math.isfinite(src):
+            src = now
         was_lost = self.pulse_status.startswith("not_detected")
         if reasons & PULSE_LOST and not was_lost and self._recent:
             # 맥박 소실을 처음 감지: 감지 지연 구간(LOSS_GUARD_S) 이전의 마지막 값으로 고정
-            before = [r for r in self._recent if r["at"] <= now - LOSS_GUARD_S]
-            self.last = (before or self._recent)[-1]
+            before = [r for r in self._recent if r["src"] <= src - LOSS_GUARD_S]
+            self.last = (before or self._recent[:1])[-1]
         if reasons & PULSE_LOST_CONFIRMED:
             self.pulse_status = "not_detected_confirmed"
         elif reasons & PULSE_LOST_UNCONFIRMED:
             self.pulse_status = "not_detected_unconfirmed"
         elif verified_hr is not None:
             self.pulse_status = "detected"
+        elif reasons & SENSOR_UNUSABLE:
+            # 센서가 떨어졌거나 신호를 쓸 수 없음: 맥박이 있는지 없는지 모른다 (맥박 소실과 다름)
+            self.pulse_status = "unknown"
         # 그 밖(HOLD_PREVIOUS_LEVEL, CALIBRATING 등)은 직전 상태 유지
         lost = self.pulse_status.startswith("not_detected")
         self.current_hr = None if lost else verified_hr
-        if lost or reasons & PULSE_LOST:
-            return
-        display_hr = _valid_hr(packet.get("bio_display_hr"))
+        if lost or reasons & (PULSE_LOST | SENSOR_UNUSABLE):
+            return                                  # 이때 화면용 숫자는 잡음에서 나온 값일 수 있어 기록하지 않는다
+        display_hr = _plausible_hr(packet.get("bio_display_hr"))
         reading = None
         if display_hr is not None:
             source = str(packet.get("bio_display_hr_source") or "display")
-            reading = {"bpm": display_hr, "at": now,
+            reading = {"bpm": display_hr, "at": now, "src": src,
                        "source": "ecg_peaks" if "ecg" in source else "ppg_peaks" if "ppg" in source else source,
                        "verified": bool(packet.get("bio_display_hr_verified"))}
         elif verified_hr is not None:
-            reading = {"bpm": verified_hr, "at": now, "source": "model", "verified": True}
-        if reading is not None:
-            self.last = reading
-            self._recent = [r for r in self._recent if r["at"] >= now - 10.0] + [reading]
+            reading = {"bpm": verified_hr, "at": now, "src": src, "source": "model", "verified": True}
+        if reading is None:
+            return
+        if self._recent and self._recent[-1]["src"] == src:
+            return                                  # 같은 판단을 다시 받은 것 (처음 받은 시각 유지)
+        self.last = reading
+        # 새 실행으로 분석 시각이 0 부터 다시 시작하면 이전 값은 버린다
+        self._recent = [r for r in self._recent if src - 10.0 <= r["src"] < src] + [reading]
 
     def fields(self, now: float) -> dict:
         last = self.last if self.last and now - self.last["at"] <= HR_MAX_AGE_S else None
@@ -221,7 +244,7 @@ class EcallLink:
                  clock: Callable[[], float] = time.monotonic,
                  media_outbox: Path | None = None, media_dir: Path | None = None) -> None:
         self.broker, self.port, self.vehicle_id = broker, port, vehicle_id
-        # 사진: media_outbox/<모델 Danger event_id>/<caution|danger>.jpg (사건별),
+        # 사진: media_outbox/<모델 Danger event_id>/<caution|danger>.jpg (실시간 모니터가 저장),
         #       없으면 media_dir/<caution|danger>.jpg (녹화 재생: 분석 결과의 evidence 폴더)
         self.media_outbox, self.media_dir = media_outbox, media_dir
         self.media_topic = f"ecall/{vehicle_id}/media"
@@ -242,6 +265,7 @@ class EcallLink:
         self._sent_model_events: set[str] = set()   # 이번 실행에서 이미 보낸 모델 Danger event_id
         self._vitals = VitalsTracker()
         self._model_seen = False                   # 모델 패킷을 받은 적이 있는지 (수동 state danger 와 구분)
+        self.takeovers = 0                         # 비상 정차 도중 운전자가 주도권을 가져간 횟수
         self.sent_triggers: list[dict] = []
 
     # ---------- MQTT ----------
@@ -315,6 +339,13 @@ class EcallLink:
                 # Danger 직후 Unity 가 반응하기 전에도 Idle 이 온다 → 그때는 근거를 지우면 안 된다.
                 # 비상 단계에서 Idle 로 돌아온 경우(R 리셋, Play 재시작)에만 이전 근거를 버린다.
                 if previous not in IDLE_PHASES:
+                    if state.get("driver_takeover") and previous != STOPPED:
+                        # 정차가 끝나기 전에 운전자가 깨어나 직접 조작해 주도권을 가져감 → e-Call 을 보내지 않는다
+                        self.takeovers += 1
+                        print(f"[ECALL] 운전자 개입({previous}에서 주도권 넘김): 비상 정차가 취소되어 e-Call 을 보내지 않음")
+                        self._log({"type": "driver_takeover", "phase": previous,
+                                   "unity_position": {k: _round_coord((state.get("position") or {}).get(k))
+                                                      for k in ("x", "y", "z")}})
                     self._danger = None
                     self._vitals.reset()
                 # R 리셋 직후 Danger 가 그대로면 출발점에서 다시 제자리 정차한다 → 같은 사고로 보고
@@ -390,8 +421,9 @@ class EcallLink:
             folders.append(Path(self.media_dir))
         for kind in MEDIA_KINDS:
             for folder in folders:
+                path = folder / f"{kind}.jpg"
                 try:
-                    data = (folder / f"{kind}.jpg").read_bytes()
+                    data = path.read_bytes()
                 except OSError:
                     continue
                 if data[:2] == JPEG_MAGIC and len(data) <= MEDIA_MAX_BYTES:

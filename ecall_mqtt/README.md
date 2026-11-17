@@ -22,6 +22,7 @@ PC (send_test_trigger.py)              Pi (Mosquitto + ecall_service.py)        
 | `send_test_trigger.py` | PC | 비전 대신 trigger를 보내는 테스트 도구 |
 | `ecall_link.py` | PC | Unity 정차(Stopped) → trigger 생성·발행 (Danger 사유·심박 포함, 한 번만) |
 | `run_vehicle_with_ecall.py` | PC | 통합본 차량 서버를 **수정 없이** e-Call 과 함께 실행 |
+| `drive_gate.py` | PC | 주행 중(시속 10km 이상)에만 운전자 감시 결과를 Unity 로 보냄. 정차 중에는 생체 위험이 확인된 Danger 만 |
 | `test_ecall_link.py` | PC | Unity·Pi 없이 연결 시험 |
 
 ## 통합본과 연결 (비전 + 생체신호 → Unity 갓길 정차 → e-Call)
@@ -41,7 +42,7 @@ PC (send_test_trigger.py)              Pi (Mosquitto + ecall_service.py)        
 - 심박: 모든 모델 패킷에서 맥박 상태와 심박을 기록한다.
   - `hr_bpm`(현재 심박): 모델이 확인한 `bio_hr`. 맥박 소실 중이면 비운다(멈춘 심장을 뛰는 것처럼 보내지 않음).
   - `pulse_status`: `detected` / `not_detected_unconfirmed` / `not_detected_confirmed` / `unknown`. 알림 문장은 "맥박 미검출(센서 기준, 미확정)"처럼 센서 판단임을 밝히고 사망으로 단정하지 않는다.
-  - `hr_last_bpm`, `hr_last_age_s`, `hr_last_source`, `hr_last_verified`: 맥박이 잡히던 동안의 마지막 심박. ECG 봉우리 심박(`bio_display_hr`, 모델 미검증)이 변화를 빨리 따라가므로 먼저 쓴다. 모델이 맥박 소실을 표시하기까지 약 0.6초 걸리므로(E4: 세동 7.5초 → `HEART_PAUSE` 8.11초) 소실 감지 0.5초 이전 값을 쓴다. E4 결과: 193 bpm(심실빈맥).
+  - `hr_last_bpm`, `hr_last_age_s`, `hr_last_source`, `hr_last_verified`: 맥박이 잡히던 동안의 마지막 심박. ECG 봉우리 심박(`bio_display_hr`, 모델 미검증)이 변화를 빨리 따라가므로 먼저 쓴다. 모델이 맥박 소실을 표시하기까지 약 0.6초, 생체 판정 주기(1초) 때문에 최대 약 1초 걸리므로(E4: 세동 7.5초 → `HEART_PAUSE` 8.07~8.11초) 소실 감지 1초 이전 값을 쓴다. 시간 비교는 모델 분석 시각(`source_timestamp`) 기준이다(차량 서버가 같은 판단을 20 Hz로 다시 보내므로 받은 시각은 쓰지 않음). E4 결과: 188 bpm(심실빈맥), 녹화 재생·실시간 모두 같음.
   - 의식이 없어도 맥박이 있으면 현재 심박을 그대로 보낸다(예: `35 bpm (심한 서맥)`). 빈맥·서맥 표시는 숫자 구간만 보고 붙이는 참고값이다.
 - 전송 시점: Unity는 0.8 km/h 이하에서 `Stopped`를 보내고 그때부터 제동한다. 그래서 `Stopped` 직후가 아니라 **속도 0이 0.5초 이어진 뒤**(최대 3초 대기) 최종 정차 위치로 보낸다.
 - 위치: MSD `position.unity`에 Unity 좌표 `{x, y, z}`(m, 소수 둘째 자리)를 넣고, 알림 문장에 `위치(Unity) : X …, Y …, Z … (m)`로 표시한다. MSD 형식상 필요한 위경도는 Unity 좌표를 기준 위경도(`--ecall-lat/--ecall-lon`)에 더한 **가상 값**(`confidence: simulated`)으로 함께 넣는다. (Unity 좌표 표시는 Pi의 `msd.py`가 하므로 Pi에도 새 `msd.py`가 있어야 한다.)
@@ -131,15 +132,11 @@ python3 send_test_trigger.py --broker localhost
 Pi 의 `ecall_service.py` 가 `media/<event_id>/` 에 저장한 뒤 **같은 공유기 안에서만 열리는 웹 서버(8080)**로 보여 준다.
 MSD 에는 `media.caution_photo_url`, `media.danger_photo_url`, 알림 문장에는 `사진(주의) : http://<Pi>:8080/...` 가 들어간다.
 
-- 사진: 모델 분석 결과의 `evidence/caution.jpg`, `danger.jpg`. 녹화 재생에서 `--recording <분석결과폴더>` 를 주면 자동으로 쓰고,
-  다른 폴더는 `--ecall-media <폴더>` 로 지정한다.
-  ```bash
-  py -B ecall_mqtt\run_vehicle_with_ecall.py --ecall-broker 192.168.0.64 --ecall-entry play_can danger --recording driver-state-monitoring-system\outputs\<분석결과>\E4
-  ```
+- 녹화 재생: 분석 결과의 `evidence/caution.jpg`, `danger.jpg` (`--recording` 을 주면 자동, 또는 `--ecall-media <폴더>`)
+- 실시간: `live_monitor/run_live.py` 가 주의 시작 장면과 첫 Danger 장면을 `ecall_mqtt/media_outbox/<모델 Danger 사건 id>/` 에 저장
 - 사진이 없으면 지금처럼 글자 정보만 보낸다. 폰은 Pi 와 같은 Wi-Fi 여야 링크가 열린다.
 - 비밀번호 없는 시연용 링크다(폴더 목록은 막음). 다른 사람이 쓰는 공유기에서는 쓰지 말 것.
-- Pi 에는 `ecall_service.py`, `msd.py`, `mqtt_compat.py` 를 새로 올리고 `sudo systemctl restart ecall-service`.
-  Pi 설정(`config.json`, 선택): `media_http_port`(기본 8080), `media_base_url`(기본: Pi 의 LAN 주소 자동), `media_dir`(기본 `media`)
+- Pi 설정(`config.json`, 선택): `media_http_port`(기본 8080), `media_base_url`(기본: Pi 의 LAN 주소 자동), `media_dir`(기본 `media`)
 
 ## 시나리오 예시
 

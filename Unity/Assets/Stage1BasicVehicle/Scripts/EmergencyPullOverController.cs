@@ -52,6 +52,16 @@ public class EmergencyPullOverController : MonoBehaviour
     [Tooltip("초당 비상 가속 입력 최대 변화량")]
     public float throttleSlewRatePerSecond = 0.3f;
 
+    [Header("Driver Takeover")]
+    // 정차가 끝나기 전(Stopped 전)에 운전자가 깨어나 직접 조작하면 주도권을 넘깁니다.
+    // 조건: 최신 운전자 판단이 Danger 가 아니고(눈을 뜨고 자세가 돌아옴) + 조향·가속·브레이크 입력이
+    // takeoverInputThreshold 이상으로 takeoverHoldSeconds 동안 이어짐. 완전히 정차한 뒤에는 R 리셋으로만 해제.
+    public bool allowDriverTakeover = true;
+    [Range(0.1f, 1f)] public float takeoverInputThreshold = 0.5f;
+    public float takeoverHoldSeconds = 0.3f;
+    public int DriverTakeoverCount { get; private set; }
+    public string LastTakeoverPhase { get; private set; } = "";
+
     public EmergencyPhase Phase { get; private set; } = EmergencyPhase.Idle;
     public bool IsEmergencyActive => Phase != EmergencyPhase.Idle;
     public float ShoulderTargetX { get; private set; }
@@ -115,6 +125,13 @@ public class EmergencyPullOverController : MonoBehaviour
     {
         if (Phase == EmergencyPhase.Idle || vehicle == null)
         {
+            takeoverInputSince = -1f;
+            return;
+        }
+
+        if (Phase != EmergencyPhase.Stopped && DriverTakeoverRequested())
+        {
+            HandOverToDriver();
             return;
         }
 
@@ -157,6 +174,8 @@ public class EmergencyPullOverController : MonoBehaviour
         }
 
         ResetSmoothedInputs();
+        takeoverInputSince = -1f;
+        vehicle.EndDriverTakeover();       // 넘겨받은 뒤 다시 Danger 가 오면 새 비상 정차
         shoulderGeometryReady = TryCalculateShoulderTarget();
         if (!shoulderGeometryReady)
         {
@@ -174,8 +193,12 @@ public class EmergencyPullOverController : MonoBehaviour
         Debug.Log("[Emergency] Danger 감지: 갓길 정차를 시작합니다.");
     }
 
+    private string latestDriverState = "";
+    private float takeoverInputSince = -1f;
+
     public void ResetEmergency()
     {
+        takeoverInputSince = -1f;
         Phase = EmergencyPhase.Idle;
         phaseStartedAt = 0f;
         shoulderGeometryReady = false;
@@ -657,6 +680,42 @@ public class EmergencyPullOverController : MonoBehaviour
     private Vector3 RoadForward()
     {
         return Quaternion.Euler(0f, roadHeadingDegrees, 0f) * Vector3.forward;
+    }
+
+    // 브리지가 받은 최신 운전자 판단(Normal/Caution/Danger)을 알려 줍니다.
+    public void ReportDriverState(string driverState)
+    {
+        latestDriverState = driverState ?? "";
+    }
+
+    private bool DriverTakeoverRequested()
+    {
+        bool awake = latestDriverState != "Danger";
+        bool input = vehicle.DriverInputMagnitude >= takeoverInputThreshold;
+        if (!allowDriverTakeover || !awake || !input)
+        {
+            takeoverInputSince = -1f;
+            return false;
+        }
+        if (takeoverInputSince < 0f)
+        {
+            takeoverInputSince = Time.realtimeSinceStartup;
+        }
+        return Time.realtimeSinceStartup - takeoverInputSince >= takeoverHoldSeconds;
+    }
+
+    private void HandOverToDriver()
+    {
+        string previous = Phase.ToString();
+        Phase = EmergencyPhase.Idle;
+        phaseStartedAt = 0f;
+        shoulderGeometryReady = false;
+        ResetSmoothedInputs();
+        takeoverInputSince = -1f;
+        DriverTakeoverCount++;
+        LastTakeoverPhase = previous;
+        vehicle.BeginDriverTakeover();
+        Debug.Log($"[Emergency] 운전자 개입({previous}): 비상 정차를 멈추고 주도권을 운전자에게 넘깁니다.");
     }
 
     private void ResetSmoothedInputs()
