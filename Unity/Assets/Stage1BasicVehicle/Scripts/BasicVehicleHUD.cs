@@ -110,9 +110,7 @@ public class BasicVehicleHUD : MonoBehaviour
             new Rect(30f, 240f, 420f, 26f),
             emergency == null
                 ? "비상 정차  Controller 없음"
-                : vehicle.DriverTakeoverActive
-                    ? $"비상 정차  취소 - 운전자 주도권 ({emergency.LastTakeoverPhase}에서)"
-                    : $"비상 정차  {emergency.Phase}",
+                : $"비상 정차  {emergency.Phase}",
             valueStyle
         );
         GUI.Label(

@@ -38,9 +38,6 @@ public class VehicleStatePacket
     public bool ecall;
     public string driver_state;
     public string emergency_phase;
-    public bool driver_takeover;            // 비상 정차 도중 운전자가 주도권을 가져간 상태
-    public int driver_takeover_count;
-    public string driver_takeover_phase;    // 넘겨받은 순간의 비상 단계
     public bool lane_geometry_ready;
     public bool lane_assist_active;
     public bool lane_assist_authorized;
@@ -177,9 +174,6 @@ public class UnityTcpVehicleBridge : MonoBehaviour
             emergency_phase = emergencyController == null
                 ? "Unavailable"
                 : emergencyController.Phase.ToString(),
-            driver_takeover = vehicle.DriverTakeoverActive,
-            driver_takeover_count = emergencyController == null ? 0 : emergencyController.DriverTakeoverCount,
-            driver_takeover_phase = emergencyController == null ? "" : emergencyController.LastTakeoverPhase,
             lane_geometry_ready = assist != null && assist.GeometryReady,
             lane_assist_active = assist != null && assist.IsActive,
             lane_assist_authorized = assist != null && assist.IsAuthorized,
@@ -243,11 +237,6 @@ public class UnityTcpVehicleBridge : MonoBehaviour
                 }
             }
 
-            if (emergencyController != null)
-            {
-                emergencyController.ReportDriverState(CurrentDriverState);
-            }
-
             if (CurrentDriverState == "Danger" && emergencyController != null)
             {
                 emergencyController.TriggerEmergency();
@@ -278,13 +267,6 @@ public class UnityTcpVehicleBridge : MonoBehaviour
 
         // 최종 Danger 이후에는 CAN/Remote 패킷이 비상 제어를 건드리지 않습니다.
         if (emergencyController != null && emergencyController.IsEmergencyActive)
-        {
-            return;
-        }
-
-        // 비상 정차 도중 운전자가 주도권을 가져갔으면, Python 이 보내는 cruise/remote 명령으로
-        // 운전자 조작을 다시 막지 않습니다(수동 유지). R 리셋, M/C 키, 새 Danger 로 해제됩니다.
-        if (vehicle.DriverTakeoverActive)
         {
             return;
         }
