@@ -27,7 +27,6 @@ for p in (str(HERE), str(VEHICLE_DIR)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from drive_gate import DrivingGate  # noqa: E402
 from ecall_link import EcallLink  # noqa: E402
 
 # 차량 서버를 띄우는 통합본 진입점 (모두 vehicle_tcp_server.SharedData 를 씀)
@@ -37,12 +36,11 @@ ENTRIES = {
 }
 
 
-def install_hooks(link: EcallLink, extra_modules=(), gate: DrivingGate | None = None):
+def install_hooks(link: EcallLink, extra_modules=()):
     """vehicle_tcp_server / model_state_client 에 알림을 붙이고, 원래대로 되돌리는 함수를 돌려준다.
 
     extra_modules: `from model_state_client import extract_model_state` 로 이름을 따로 가져간 모듈
     (예: play_can_model). 그 모듈의 이름도 같은 알림 함수로 바꾼다.
-    gate: 주행 중에만 감시 결과를 Unity 로 보내는 거르개 (drive_gate.py). None 이면 거르지 않는다.
     """
     import model_state_client as msc
     import vehicle_tcp_server as vts
@@ -53,8 +51,6 @@ def install_hooks(link: EcallLink, extra_modules=(), gate: DrivingGate | None = 
     def set_state(self, state):
         original_set_state(self, state)
         try:
-            if gate is not None:
-                gate.on_vehicle_state(state)
             link.on_vehicle_state(state)
         except Exception as exception:
             print(f"[ECALL] 요청 처리 오류(차량 제어에는 영향 없음): {exception}")
@@ -65,13 +61,7 @@ def install_hooks(link: EcallLink, extra_modules=(), gate: DrivingGate | None = 
                 link.on_model_packet(packet)
         except Exception as exception:
             print(f"[ECALL] 모델 근거 기록 오류(판정에는 영향 없음): {exception}")
-        label = original_extract(packet, max_age_s)
-        if gate is not None:
-            try:
-                label = gate.filter(label, packet if isinstance(packet, dict) else None)
-            except Exception as exception:
-                print(f"[GATE] 오류(원래 판단을 그대로 보냄): {exception}")
-        return label
+        return original_extract(packet, max_age_s)
 
     patched = [m for m in extra_modules if getattr(m, "extract_model_state", None) is original_extract]
     vts.SharedData.set_state = set_state
@@ -97,13 +87,6 @@ def parse_ecall_args(argv):
     ap.add_argument("--ecall-lat", type=float, default=35.8468, help="Unity 원점의 가상 위도")
     ap.add_argument("--ecall-lon", type=float, default=127.1294, help="Unity 원점의 가상 경도")
     ap.add_argument("--ecall-log", type=Path, default=HERE / "ecall_requests.jsonl")
-    ap.add_argument("--ecall-media", type=Path, default=None,
-                    help="주의·위험 사진 폴더(caution.jpg, danger.jpg). 녹화 재생에서 --recording 을 주면 그 evidence 폴더를 자동 사용")
-    ap.add_argument("--ecall-media-outbox", type=Path, default=HERE / "media_outbox",
-                    help="실시간 모니터가 사건별 사진을 저장하는 폴더 (live_monitor/run_live.py 와 같아야 함)")
-    ap.add_argument("--monitor-min-speed", type=float, default=10.0,
-                    help="이 속도(km/h) 이상으로 2초 주행하면 운전자 감시 켬, 3 km/h 이하로 3초 서 있으면 끔. "
-                         "정차 중에는 비전 경고·정차를 보내지 않음(생체 위험이 확인된 Danger 만). 0 이면 항상 감시")
     ap.add_argument("--ecall-entry", choices=ENTRIES, default="vehicle",
                     help="vehicle: vehicle_tcp_server.py, play_can: play_can_model.py")
     return ap.parse_known_args(argv)
@@ -113,27 +96,17 @@ def main():
     if any(a in ("-h", "--help") for a in sys.argv[1:]):
         print(__doc__)
         print("e-Call 옵션: --ecall-broker IP (필수), --ecall-port, --ecall-config, --ecall-lat, --ecall-lon, "
-              "--ecall-log, --ecall-entry {vehicle,play_can}, --monitor-min-speed")
+              "--ecall-log, --ecall-entry {vehicle,play_can}")
         return
     args, rest = parse_ecall_args(sys.argv[1:])
     entry = importlib.import_module(ENTRIES[args.ecall_entry])
     vehicle_id = json.loads(args.ecall_config.read_text(encoding="utf-8"))["vehicle_id"]
-    media_dir = args.ecall_media
-    if media_dir is None and "--recording" in rest:
-        i = rest.index("--recording")
-        if i + 1 < len(rest):
-            media_dir = Path(rest[i + 1]) / "evidence"
     link = EcallLink(broker=args.ecall_broker, port=args.ecall_port, vehicle_id=vehicle_id,
-                     base_lat=args.ecall_lat, base_lon=args.ecall_lon, log_path=args.ecall_log,
-                     media_outbox=args.ecall_media_outbox, media_dir=media_dir)
+                     base_lat=args.ecall_lat, base_lon=args.ecall_lon, log_path=args.ecall_log)
     link.start()
     print(f"[ECALL] 정차(Stopped) 시 {link.trigger_topic} → {args.ecall_broker}:{args.ecall_port}  "
           f"기록: {args.ecall_log}")
-    print(f"[ECALL] 사진: {args.ecall_media_outbox} (실시간)" + (f", {media_dir} (녹화)" if media_dir else ""))
-    gate = DrivingGate(on_speed_kph=args.monitor_min_speed, enabled=args.monitor_min_speed > 0)
-    if gate.enabled:
-        print(f"[GATE] 시속 {args.monitor_min_speed:g}km 이상 주행할 때만 운전자 감시 (지금: 정차 → 감시 꺼짐)")
-    restore = install_hooks(link, extra_modules=[entry], gate=gate)
+    restore = install_hooks(link, extra_modules=[entry])
     sys.argv = [str(entry.__file__), *rest]
     try:
         entry.main()
