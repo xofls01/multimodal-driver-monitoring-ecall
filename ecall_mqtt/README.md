@@ -23,6 +23,60 @@ PC (send_test_trigger.py)              Pi (Mosquitto + ecall_service.py)        
 | `ecall_link.py` | PC | Unity 정차(Stopped) → trigger 생성·발행 (Danger 사유·심박 포함, 한 번만) |
 | `run_vehicle_with_ecall.py` | PC | 통합본 차량 서버를 **수정 없이** e-Call 과 함께 실행 |
 | `test_ecall_link.py` | PC | Unity·Pi 없이 연결 시험 |
+| `ecall_screen.py`, `ecall_screen.html` | PC (Pi도 가능) | 받은 MSD를 터미널 대신 브라우저 화면으로 표시 (시연용, 아래 4번) |
+| `test_ecall_screen.py` | PC | 브로커·브라우저 없이 화면 시험 |
+| `../run_e4_demo.ps1`, `../run_e4_demo_mac.sh` (저장소 루트) | PC / Mac | 아래 실행 과정을 명령어 하나로 (바로 아래 'Windows·macOS 한 번에 실행') |
+
+## Windows·macOS 한 번에 실행 (Pi 없이 PC 한 대로 비전 + Unity + e-Call)
+
+명령어 하나로 Unity 에디터, e-Call 서비스(Pi 역할), e-Call 수신 화면(폰 역할), 차량 서버를 모두 켠다.
+비전·생체신호는 저장해 둔 E4 분석 결과(영상 포함)를 CAN danger 시나리오와 함께 재생한다.
+Unity에서 Play를 누르면 위험 판단 → 비상등·갓길 정차 → e-Call 전송이 진행되고, **e-Call이 도착하는 순간 브라우저에 수신 화면(http://localhost:8765)이 열린다.**
+
+**Windows** (PowerShell, 저장소 루트에서) — `run_e4_demo.ps1`
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\run_e4_demo.ps1
+```
+
+**macOS** (터미널, 저장소 루트에서) — `run_e4_demo_mac.sh` (Windows 와 명령어가 다르다)
+
+```bash
+bash run_e4_demo_mac.sh
+```
+
+- `-ExecutionPolicy Bypass`(Windows)는 이번 실행에만 스크립트 실행 제한을 푼다(시스템 설정은 그대로).
+- **끝내기**: 스크립트를 실행한 창에서 Ctrl+C(또는 창 닫기). 같이 띄운 e-Call 서비스·수신 화면도 꺼진다. 다시 실행하면 이전에 남은 서버를 먼저 정리한다.
+- **다시 시연**: 수신 화면에서 R(대기 화면으로) → Unity Play 다시.
+
+### 처음 한 번 준비
+
+1. **Unity 프로젝트**: 통합본 Unity 프로젝트, 씬 `Assets/Stage1BasicVehicle/Scenes/BasicDrivingStage1`. 기본 위치 `~/My project`(Windows `%USERPROFILE%\My project`), 다르면 아래 옵션으로 지정.
+2. **MQTT 브로커(Mosquitto)를 이 PC에**
+   - Windows: [mosquitto.org](https://mosquitto.org/download/)에서 설치 → 서비스 시작(관리자 PowerShell `Start-Service mosquitto`)
+   - macOS: `brew install mosquitto && brew services start mosquitto`
+3. **모델 가상환경** `driver-state-monitoring-system/.venv` (모델 README 참고) + `paho-mqtt`, `opencv-python`. 스크립트는 PATH의 python이 아니라 이 `.venv` 파이썬을 쓴다.
+4. **저장된 E4 분석 결과** (`driver-state-monitoring-system/outputs/`는 git에 없으므로 따로 받거나 만든다)
+   - `preview.mp4`, `unity_packets.jsonl`이 있는 폴더. `outputs/local_e4_test/E4` → `outputs/e4_overlay_crop/E4` 순서로 자동으로 찾는다.
+   - 만드는 법(`driver-state-monitoring-system`에서, 입력 영상·생체신호 필요):
+     `.venv\Scripts\python -B scripts\run_multimodal_system.py --pairs <입력 목록> --only E4 --verify-tcp --output outputs\local_e4_test`
+
+### PC마다 다른 값 (옵션·환경 변수)
+
+| 값 | Windows 옵션 (또는 환경 변수) | macOS 환경 변수 | 기본값 |
+| --- | --- | --- | --- |
+| Unity 프로젝트 폴더 | `-UnityProject` (`UNITY_PROJECT`) | `UNITY_PROJECT` | `~/My project` |
+| Unity 에디터 | `-UnityExe` (`UNITY_EXE`) | `UNITY_APP` | 프로젝트 버전과 같은 Unity Hub 에디터 자동 선택 |
+| 재생할 분석 결과 폴더 | `-Recording` (`E4_RECORDING`) | `E4_RECORDING` | 위 4번 자동 탐색 |
+| MQTT 브로커 | `-Broker` (`BROKER`) | `BROKER` | `localhost` (Pi 를 쓰면 Pi IP. 이때 PC 에서 `ecall_service.py` 는 띄우지 않음) |
+
+예: `powershell -ExecutionPolicy Bypass -File .\run_e4_demo.ps1 -UnityProject "D:\Unity\DriverSim" -Broker 192.168.0.64`
+예: `UNITY_PROJECT="$HOME/Unity/DriverSim" bash run_e4_demo_mac.sh`
+
+### 알아둘 점
+
+- Windows 스크립트는 PowerShell 5.1이 한글을 읽도록 UTF-8(BOM)으로 저장되어 있다. 고칠 때 인코딩을 유지할 것.
+- macOS 스크립트는 Windows와 같은 순서로 만들었지만 Mac에서 실제로 돌려 보지는 않았다.
 
 ## 통합본과 연결 (비전 + 생체신호 → Unity 갓길 정차 → e-Call)
 
@@ -124,6 +178,31 @@ py send_test_trigger.py --broker 192.168.0.64 --direct
 ```bash
 python3 send_test_trigger.py --broker localhost
 ```
+
+## 4. e-Call 수신 화면 (터미널 대신 화면으로 시연)
+
+MSD 토픽(`ecall/VIN-TEST-0001/msd`)을 구독해 받은 내용을 브라우저 화면으로 보여 준다. 추가 설치는 없다(paho-mqtt만 필요).
+처음엔 "e-Call 대기 중" 화면이고, MSD가 오면 왼쪽 단계(PC·Unity → Raspberry Pi → 수신 화면)가 차례로 초록색이 되고 오른쪽에 MSD가 뜬다.
+표시 문구는 폰 알림(`…/text`)과 같은 `msd.msd_sections()`를 쓴다.
+
+```bash
+# PC 에서 (Pi 브로커 구독). 브라우저가 http://localhost:8765 로 자동으로 열린다
+py -B ecall_mqtt\ecall_screen.py --broker 192.168.0.64
+
+# 다른 창에서 확인용 e-Call 보내기 (또는 위 '통합본과 연결'처럼 실제 시연)
+py ecall_mqtt\send_test_trigger.py --broker 192.168.0.64
+```
+
+- 화면에서 **R 키**(또는 오른쪽 아래 `초기화`)를 누르면 대기 화면으로 돌아간다. 연속 시연할 때 매번 누른다.
+- **연습용** `--demo`: 브로커·Pi 없이 4초 뒤 예시 MSD가 뜬다(R을 누르면 다시). 발표 리허설이나 화면 확인용.
+  ```bash
+  py -B ecall_mqtt\ecall_screen.py --demo
+  ```
+- `--open-on-ecall`: 시작할 때가 아니라 **e-Call(MSD)이 도착할 때** 브라우저를 연다(차량이 정차한 뒤 화면이 뜨는 연출). 화면이 이미 열려 있으면 새로 열지 않는다.
+- 같은 공유기의 폰·노트북에서 보려면 `--host 0.0.0.0`으로 켜고 `http://<이 PC IP>:8765`를 연다.
+- 위쪽 표시: 브로커 연결 상태, Pi 온라인/오프라인(`…/status`), `TEST CALL`.
+- MSD에 사진 링크가 있으면 오른쪽 아래 **확장 데이터**(향후 활용 예정, 표준 MSD 항목 아님) 칸에 작게 보여 준다. 사진은 Pi 웹 서버에서 열리므로 화면을 띄운 기기가 Pi와 같은 Wi-Fi여야 한다.
+- 화면 시험: `py -B -m pytest -q -p no:cacheprovider ecall_mqtt/test_ecall_screen.py`
 
 ## 주의·위험 사진 (MSD 링크)
 
