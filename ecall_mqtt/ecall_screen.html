@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>e-Call 수신 화면</title>
+<style>
+  :root {
+    --bg: #0e1828; --card: #18263c; --line: #344864; --txt: #e2e9f2; --muted: #8c9cb4;
+    --red: #eb4848; --green: #34c778; --amber: #f5a623; --dim: #22324c;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--txt);
+    font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; }
+  body { display: flex; flex-direction: column; padding: 28px 40px 22px; min-height: 100vh; }
+  body.flash::after { content: ""; position: fixed; inset: 0; pointer-events: none;
+    box-shadow: inset 0 0 0 6px var(--red); animation: flash 1.6s ease-out forwards; }
+  @keyframes flash { 0%, 40% { opacity: 1; } 100% { opacity: 0; } }
+
+  header { display: flex; align-items: center; gap: 14px; padding-bottom: 18px; border-bottom: 2px solid var(--line); }
+  .dot { width: 20px; height: 20px; border-radius: 50%; background: var(--muted); flex: none; }
+  .live .dot { background: var(--red); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 8px rgba(235, 72, 72, .25); } }
+  h1 { margin: 0; font-size: 30px; font-weight: 700; letter-spacing: -.5px; }
+  .chips { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .chip { padding: 7px 14px; border-radius: 999px; background: var(--dim); color: var(--muted);
+    font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+  .chip i { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .chip.ok i { background: var(--green); } .chip.bad i { background: var(--red); }
+  .chip.test { background: transparent; border: 2px solid var(--amber); color: var(--amber); }
+
+  main { flex: 1; display: grid; grid-template-columns: minmax(300px, 460px) 1fr; gap: 40px; padding-top: 22px; }
+  .flow { display: flex; flex-direction: column; justify-content: space-between; }
+  .node { position: relative; background: var(--card); border: 3px solid var(--dim); border-radius: 16px;
+    padding: 22px 70px 22px 24px; transition: border-color .4s, opacity .4s; opacity: .55; }
+  .node b { display: block; font-size: 22px; } .node span { display: block; margin-top: 8px; color: var(--muted); font-size: 17px; }
+  .node .check { position: absolute; right: 22px; top: 50%; width: 36px; height: 36px; margin-top: -18px;
+    border-radius: 50%; background: var(--dim); display: grid; place-items: center; transition: background .4s; }
+  .node .check svg { width: 20px; height: 20px; opacity: 0; transition: opacity .4s; }
+  .node.on { border-color: var(--green); opacity: 1; }
+  .node.on .check { background: var(--green); } .node.on .check svg { opacity: 1; }
+  .arrow { flex: 1; min-height: 34px; position: relative; }
+  .arrow::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 12px; width: 4px; margin-left: -2px;
+    background: var(--dim); transition: background .4s; }
+  .arrow::after { content: ""; position: absolute; left: 50%; bottom: 0; margin-left: -10px;
+    border: 10px solid transparent; border-top: 13px solid var(--dim); border-bottom: 0; transition: border-color .4s; }
+  .arrow.on::before { background: var(--green); } .arrow.on::after { border-top-color: var(--green); }
+
+  .right { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .msd { flex: 1; background: var(--card); border: 2px solid var(--line); border-radius: 16px; padding: 22px 28px; }
+  .msd-top { display: flex; align-items: center; gap: 12px; }
+  .msd-top h2 { margin: 0; font-size: 22px; }
+  .pill { margin-left: auto; padding: 6px 18px; border-radius: 999px; background: var(--green); color: #fff;
+    font-weight: 700; font-size: 17px; white-space: nowrap; }
+  .alert { color: var(--red); font-weight: 700; font-size: 20px; margin: 16px 0 14px; }
+  .rows { display: grid; grid-template-columns: max-content 1fr; column-gap: 34px; row-gap: 9px; font-size: 18px; }
+  .rows .k { color: var(--muted); } .rows .v { word-break: break-all; }
+  .rows .hot { color: var(--red); font-weight: 700; }
+  .rows .gap { grid-column: 1 / -1; height: 6px; }
+  .rows a { color: #7fb4ff; }
+  .warn { margin-top: 14px; color: var(--amber); font-size: 15px; }
+  .ext { background: var(--card); border: 2px dashed var(--line); border-radius: 16px; padding: 10px 20px 12px;
+    display: flex; align-items: center; gap: 20px; }
+  .ext-title { font-size: 15px; color: var(--muted); line-height: 1.5; }
+  .ext-title b { color: var(--amber); }
+  .photos { display: flex; gap: 14px; flex-wrap: wrap; }
+  .photos figure { margin: 0; }
+  .photos img, .photos .nophoto { height: 84px; border-radius: 8px; display: block; background: var(--dim); }
+  .photos .nophoto { width: 150px; display: grid; place-items: center; text-align: center; padding: 8px;
+    font-size: 12px; color: var(--muted); }
+  .photos figcaption { font-size: 13px; color: var(--muted); margin-top: 4px; }
+
+  .waiting { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; gap: 14px; color: var(--muted); }
+  .ring { width: 74px; height: 74px; border-radius: 50%; border: 4px solid var(--line); position: relative; }
+  .ring::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 4px solid transparent;
+    border-top-color: var(--green); animation: spin 1.4s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .waiting strong { color: var(--txt); font-size: 26px; }
+
+  footer { display: flex; gap: 20px; align-items: center; padding-top: 14px; color: var(--muted); font-size: 15px; }
+  footer button { margin-left: auto; background: transparent; color: var(--muted); border: 1px solid var(--line);
+    border-radius: 8px; padding: 6px 14px; font: inherit; cursor: pointer; }
+  footer button:hover { color: var(--txt); border-color: var(--muted); }
+
+  /* 넓은 화면: 한 화면 안에 다 들어가게 (넘치면 MSD 카드 안에서만 스크롤) */
+  @media (min-width: 861px) {
+    body { height: 100vh; }
+    main { min-height: 0; } .right { min-height: 0; } .msd { min-height: 0; overflow: auto; }
+  }
+  @media (min-width: 861px) and (max-height: 820px) {
+    body { padding: 18px 36px 12px; }
+    header { padding-bottom: 12px; } main { padding-top: 14px; } footer { padding-top: 8px; }
+    .msd { padding: 14px 26px; } .alert { margin: 10px 0 10px; }
+    .rows { font-size: 17px; row-gap: 4px; } .rows .gap { height: 4px; }
+    .photos img, .photos .nophoto { height: 70px; } .ext { padding: 8px 20px; }
+    .node { padding: 18px 70px 18px 24px; }
+  }
+
+  @media (max-width: 860px) {
+    body { padding: 16px; }
+    h1 { font-size: 22px; }
+    header { flex-wrap: wrap; } .chips { margin-left: 0; justify-content: flex-start; width: 100%; }
+    main { grid-template-columns: 1fr; gap: 16px; }
+    .flow { gap: 0; } .arrow { min-height: 22px; flex: none; }
+    .node { padding: 14px 60px 14px 16px; } .node b { font-size: 18px; } .node span { font-size: 14px; }
+    .rows { font-size: 15px; column-gap: 16px; } .msd { padding: 16px; }
+    .msd-top h2 { font-size: 17px; } .pill { font-size: 14px; padding: 5px 12px; }
+    .ext { flex-direction: column; align-items: flex-start; }
+    footer { flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="dot"></div>
+  <h1>e-Call 수신 화면</h1>
+  <div class="chips">
+    <div class="chip" id="chip-broker"><i></i><span>브로커</span></div>
+    <div class="chip" id="chip-pi"><i></i><span>Raspberry Pi</span></div>
+    <div class="chip test">TEST CALL</div>
+  </div>
+</header>
+
+<main>
+  <section class="flow">
+    <div class="node" id="n1"><b>PC · Unity</b><span>갓길 정차 확인 → e-Call 요청</span><div class="check"></div></div>
+    <div class="arrow" id="a1"></div>
+    <div class="node" id="n2"><b>Raspberry Pi</b><span>MSD 생성 → MQTT 전송</span><div class="check"></div></div>
+    <div class="arrow" id="a2"></div>
+    <div class="node" id="n3"><b>수신 화면</b><span>MSD 수신 · 표시</span><div class="check"></div></div>
+  </section>
+
+  <section class="right">
+    <div class="msd" id="msd"></div>
+    <div class="ext" id="ext" hidden>
+      <div class="ext-title"><b>확장 데이터</b><br>운전자 상태 사진<br>(향후 활용 예정 · 표준 MSD 항목 아님)</div>
+      <div class="photos" id="photos"></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <span id="topic">MQTT 토픽 : -</span>
+  <span id="recv"></span>
+  <button id="reset" title="R 키">초기화 (R)</button>
+</footer>
+
+<script>
+  const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+  document.querySelectorAll(".check").forEach(c => c.innerHTML = CHECK);
+  const $ = id => document.getElementById(id);
+  const steps = ["n1", "a1", "n2", "a2", "n3"];
+  const HOT = new Set(["상태", "심박"]);
+  let shownId = null, timers = [];
+
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  function chip(id, ok, text) {
+    const c = $(id);
+    c.className = "chip " + (ok === true ? "ok" : ok === false ? "bad" : "");
+    c.querySelector("span").textContent = text;
+  }
+
+  function showWaiting() {
+    timers.forEach(clearTimeout); timers = [];
+    shownId = null;
+    document.body.classList.remove("live");
+    steps.forEach(s => $(s).classList.remove("on"));
+    const box = $("msd"); box.replaceChildren();
+    const w = el("div", "waiting");
+    w.append(el("div", "ring"), el("strong", "", "e-Call 대기 중"),
+             el("div", "", "차량이 갓길에 정차하면 MSD가 자동으로 표시됩니다."));
+    box.append(w);
+    $("ext").hidden = true; $("recv").textContent = "";
+  }
+
+  function value(label, v) {
+    if (/^https?:\/\//.test(v)) {
+      const a = el("a", "", label === "지도" ? "지도에서 보기" : "열기");
+      a.href = v; a.target = "_blank"; a.rel = "noopener";
+      return a;
+    }
+    return document.createTextNode(v);
+  }
+
+  function showEcall(e) {
+    if (e.msd_id === shownId) return;
+    shownId = e.msd_id;
+    timers.forEach(clearTimeout); timers = [];
+    steps.forEach(s => $(s).classList.remove("on"));
+    steps.forEach((s, i) => timers.push(setTimeout(() => $(s).classList.add("on"), 120 + i * 220)));
+    document.body.classList.add("live");
+    document.body.classList.remove("flash"); void document.body.offsetWidth; document.body.classList.add("flash");
+
+    const box = $("msd"); box.replaceChildren();
+    const top = el("div", "msd-top");
+    top.append(el("h2", "", "MSD (Minimum Set of Data)"), el("span", "pill", "수신 완료"));
+    const rows = el("div", "rows");
+    e.sections.forEach((sec, i) => {
+      if (i) rows.append(el("div", "gap"));
+      sec.forEach(r => {
+        rows.append(el("div", "k", r.label));
+        const v = el("div", "v" + (HOT.has(r.label) ? " hot" : ""));
+        v.append(value(r.label, r.value));
+        rows.append(v);
+      });
+    });
+    box.append(top, el("div", "alert", e.head), rows);
+    if (e.errors && e.errors.length) box.append(el("div", "warn", "형식 경고: " + e.errors.join(" / ")));
+
+    const ph = $("photos"); ph.replaceChildren();
+    e.photos.forEach(p => {
+      const f = el("figure"), img = el("img");
+      img.src = p.url; img.alt = p.label;
+      img.onerror = () => { img.replaceWith(el("div", "nophoto", "사진을 열 수 없음 (Pi와 같은 Wi-Fi 필요)")); };
+      f.append(img, el("figcaption", "", p.label));
+      ph.append(f);
+    });
+    $("ext").hidden = !e.photos.length;
+    $("recv").textContent = "수신 시각 " + e.received;
+  }
+
+  function render(s) {
+    chip("chip-broker", s.connected, (s.demo ? "" : "브로커 ") + s.broker + (s.connected ? " · 연결됨" : " · 연결 중"));
+    const pi = s.pi === "online" ? true : s.pi === "offline" ? false : null;
+    chip("chip-pi", pi, "Raspberry Pi · " + (pi === true ? "온라인" : pi === false ? "오프라인" : "확인 중"));
+    $("topic").textContent = "MQTT 토픽 : " + s.topic;
+    if (s.ecall) showEcall(s.ecall); else if (shownId !== null || !$("msd").firstChild) showWaiting();
+  }
+
+  function reset() { fetch("/reset", { method: "POST" }).catch(() => {}); }
+  $("reset").onclick = reset;
+  document.addEventListener("keydown", ev => { if (ev.key === "r" || ev.key === "R") reset(); });
+
+  showWaiting();
+  const es = new EventSource("/events");
+  es.onmessage = ev => render(JSON.parse(ev.data));
+  es.onerror = () => chip("chip-broker", false, "화면 서버 연결 끊김 · 다시 연결 중");
+</script>
+</body>
+</html>
