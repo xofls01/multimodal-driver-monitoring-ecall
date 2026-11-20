@@ -17,7 +17,8 @@ public class DriverStateWarningUI : MonoBehaviour
 
     private string previousDriverState = "Normal";
     private const float WarningRepeatIntervalSeconds = 0.5f;
-    private const int TextRenderScale = 2;
+    private const float NoticeScale = 1.5f;
+    private const int TextRenderScale = 3;
     private float nextWarningTime;
     private AudioSource audioSource;
     private AudioClip warningClip;
@@ -205,6 +206,7 @@ public class DriverStateWarningUI : MonoBehaviour
         rect.pivot = new Vector2(0.5f, 0.5f);
         rect.sizeDelta = size;
         rect.anchoredPosition = Vector2.zero;
+        rect.localScale = Vector3.one * NoticeScale;
         Image oldBackground = panel.GetComponent<Image>();
         if (oldBackground != null)
         {
@@ -280,6 +282,7 @@ public class DriverStateWarningUI : MonoBehaviour
         assistNotice.pivot = new Vector2(0.5f, 0.5f);
         assistNotice.sizeDelta = new Vector2(540f, 88f);
         assistNotice.anchoredPosition = new Vector2(0f, 90f);
+        assistNotice.localScale = Vector3.one * NoticeScale;
         assistNoticeGroup = notice.GetComponent<CanvasGroup>();
         assistNoticeGroup.alpha = 0f;
         assistNoticeGroup.interactable = false;

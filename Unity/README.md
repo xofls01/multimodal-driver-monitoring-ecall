@@ -3,11 +3,14 @@
 기존 WheelCollider 차량과 Python TCP 통신을 유지하면서 다음 기능을 제공합니다.
 
 - Play 즉시 시작하는 기본 60km/h P 제어 정속주행
+- 검은 반투명 배경을 사용한 왼쪽 위 디지털 속도계와 오른쪽 위 X/Y/Z 좌표·TCP 연결 상태
+- 근거리 하드 그림자가 있는 태양광 1개와 하늘·수평선·지면 색의 환경광을 사용하는 경량 주간 조명
 - 100m 도로 세그먼트 4개의 재활용식 직선 도로
 - Python의 `Normal/Caution/Danger` 상태 및 명시적 원격 운전 명령
 - 별도 스레드에서 실행되는 caution/danger 시나리오
 - Caution 동안 중앙의 주황색 주의 카드와 0.5초 간격 반복 경고음
 - Danger 동안 중앙의 빨간 테두리·반투명 배경 알림, 실제 보정 중 하단의 청록색 보조 알림
+- 발표 시인성을 위해 주의·비상·차량 보정 알림의 글자·아이콘·배경을 기존 대비 1.5배 확대하고 글자 렌더링 해상도도 함께 조정
 - 밝은 웜 화이트 차체와 전면 다크/후면 레드 램프 베이스
 - 램프 베이스 위 전·후방 좌우 주황색 비상등 4개의 실시간 점멸 표시
 - Danger 진입 시 비상 정차 상태 머신, 비상 UI, 비상등 점멸, e-Call 상태
@@ -23,6 +26,7 @@
 
 > Scene Builder를 다시 실행하면 같은 경로의 데모 Scene을 새 구성으로 다시 저장합니다.
 > 이미 수정 중인 Scene은 `Tools > Emergency Driving Demo > Add Grass To Current Scene`을 실행하고 저장하면 기존 오브젝트를 유지한 채 잔디 지면만 추가할 수 있습니다.
+> 기존 Scene의 경량 주간 조명은 `Tools > Emergency Driving Demo > Apply Lightweight Daylight To Current Scene`으로 적용하고 저장합니다. 기존 Directional Light를 재사용하며 그림자 강도는 0.55입니다. 현재 품질 단계가 사용하는 URP 에셋의 태양광 그림자를 1024px·거리 25m·캐스케이드 1개로 설정하고, 소프트 그림자·추가 조명의 그림자는 끕니다. 간접광 베이크·추가 효과는 사용하지 않습니다. HUD 배경 불투명도는 `BasicVehicleHUD.panelOpacity`(기본 0.65)로 조절합니다.
 
 ## 제어 우선순위
 
@@ -175,7 +179,7 @@ python3 Unity/python/verify_can_lane.py caution --start 2 --end 8 --output /tmp/
 ### 정속주행과 도로
 
 1. Python을 실행하지 않고 Unity Play를 누릅니다.
-2. HUD에서 `Cruise ON / 목표 60 km/h`를 확인합니다.
+2. 왼쪽 위 디지털 속도계와 오른쪽 위 X/Y/Z 좌표·TCP 연결 상태를 확인합니다. 기존 Scene은 `BasicVehicleHUD.cs`만 반영하면 되며 Scene 재생성은 필요하지 않습니다.
 3. 차량이 자동 출발해 목표 속도 부근을 유지하는지 봅니다.
 4. 오래 주행해도 Hierarchy의 RoadSegment가 4개인지 확인합니다.
 
