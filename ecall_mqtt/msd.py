@@ -92,6 +92,14 @@ DIRS = ["북", "북동", "동", "남동", "남", "남서", "서", "북서"]
 
 def format_msd_text(m):
     """MSD를 사람이 읽기 좋은 한국어 알림 문장으로 바꾼다."""
+    head, sections = msd_sections(m)
+    blocks = ["\n".join(f"{label} : {value}" for label, value in sec) for sec in sections]
+    return "\n\n".join([head, *blocks])
+
+
+def msd_sections(m):
+    """MSD를 (제목, [[(항목, 값), ...], ...]) 로 바꾼다. 알림 문장과 e-Call 화면(ecall_screen.py)이 같이 쓴다.
+    묶음 순서: 시각·상태·사유·심박 / 위치·지도·방향 / 사진(있을 때만) / 차량·차주·MSD ID"""
     t = datetime.datetime.strptime(m["time_utc"], "%Y-%m-%dT%H:%M:%SZ")
     kst = t + datetime.timedelta(hours=9)
     ds = m["driver_state"]
@@ -105,48 +113,43 @@ def format_msd_text(m):
         hr = f"현재 측정 안 됨 — {PULSE_KO[pulse]}"
     else:
         hr = "측정값 없음"
-    hr_lines = [f"심박 : {hr}"]
+    hr_lines = [("심박", hr)]
     last = ds.get("hr_last_bpm")
     if last is not None and ds.get("hr_bpm") is None:
         age = ds.get("hr_last_age_s")
         when = f"정차 약 {age:.0f}초 전" if isinstance(age, (int, float)) else "시각 미상"
         src = HR_SOURCE_KO.get(ds.get("hr_last_source"), ds.get("hr_last_source") or "")
         check = "" if ds.get("hr_last_verified") else "·미검증"
-        hr_lines.append(f"마지막 확인 심박 : {last:.0f} bpm ({hr_band(last)}, {when}, {src}{check})")
+        hr_lines.append(("마지막 확인 심박", f"{last:.0f} bpm ({hr_band(last)}, {when}, {src}{check})"))
     d = m.get("direction_deg")
     direction = f"{DIRS[int((d + 22.5) // 45) % 8]} ({d:.0f}°)" if d is not None else "알 수 없음"
     conf = "시뮬레이션" if pos.get("confidence") == "simulated" else pos.get("confidence", "")
     how = "자동 발신" if m["activation"] == "automatic" else "수동 발신"
     head = "[테스트] e-Call 긴급 알림" if m.get("test_call") else "e-Call 긴급 알림"
     media = m.get("media") or {}
-    photo_lines = [f"{MEDIA_KO[k]} : {media[k + '_photo_url']}" for k in MEDIA_KINDS if media.get(k + "_photo_url")]
-    if photo_lines:
-        photo_lines.insert(0, "")
+    photo_lines = [(MEDIA_KO[k], media[k + "_photo_url"]) for k in MEDIA_KINDS if media.get(k + "_photo_url")]
     unity = pos.get("unity") or {}
     if unity:
         def c(v):
             return f"{v:.2f}" if isinstance(v, (int, float)) else "-"
-        place = [f"위치(Unity) : X {c(unity.get('x'))}, Y {c(unity.get('y'))}, Z {c(unity.get('z'))} (m)",
-                 f"가상 위경도 : {pos['lat']:.5f}, {pos['lon']:.5f} ({conf})"]
+        place = [("위치(Unity)", f"X {c(unity.get('x'))}, Y {c(unity.get('y'))}, Z {c(unity.get('z'))} (m)"),
+                 ("가상 위경도", f"{pos['lat']:.5f}, {pos['lon']:.5f} ({conf})")]
     else:
-        place = [f"위치 : {pos['lat']:.5f}, {pos['lon']:.5f} ({conf})"]
-    return "\n".join([
-        head,
-        "",
-        f"시각 : {kst:%Y-%m-%d %H:%M:%S} (한국 시간)",
-        f"상태 : {STATE_KO.get(ds['state'], ds['state'])} ({how})",
-        f"사유 : {reasons}",
-        *hr_lines,
-        "",
-        *place,
-        f"지도 : https://www.google.com/maps?q={pos['lat']},{pos['lon']}",
-        f"진행 방향 : {direction}",
-        *photo_lines,
-        "",
-        f"차량 : {v.get('model')} / {v.get('plate')}",
-        f"차주 : {o.get('name')} ({o.get('phone')})",
-        f"MSD ID : {m['msd_id']}",
-    ])
+        place = [("위치", f"{pos['lat']:.5f}, {pos['lon']:.5f} ({conf})")]
+    sections = [
+        [("시각", f"{kst:%Y-%m-%d %H:%M:%S} (한국 시간)"),
+         ("상태", f"{STATE_KO.get(ds['state'], ds['state'])} ({how})"),
+         ("사유", reasons),
+         *hr_lines],
+        [*place,
+         ("지도", f"https://www.google.com/maps?q={pos['lat']},{pos['lon']}"),
+         ("진행 방향", direction)],
+        photo_lines,
+        [("차량", f"{v.get('model')} / {v.get('plate')}"),
+         ("차주", f"{o.get('name')} ({o.get('phone')})"),
+         ("MSD ID", m["msd_id"])],
+    ]
+    return head, [sec for sec in sections if sec]
 
 
 def validate_msd(m):
