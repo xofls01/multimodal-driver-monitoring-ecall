@@ -25,7 +25,7 @@ PC (send_test_trigger.py)              Pi (Mosquitto + ecall_service.py)        
 | `test_ecall_link.py` | PC | Unity·Pi 없이 연결 시험 |
 | `ecall_screen.py`, `ecall_screen.html` | PC (Pi도 가능) | 받은 MSD를 터미널 대신 브라우저 화면으로 표시 (시연용, 아래 4번) |
 | `test_ecall_screen.py` | PC | 브로커·브라우저 없이 화면 시험 |
-| `../run_e4_demo.ps1`, `../run_e4_demo_mac.sh` (저장소 루트) | PC / Mac | 아래 실행 과정을 명령어 하나로 (바로 아래 'Windows·macOS 한 번에 실행') |
+| `run_e4_demo.ps1`, `run_e4_demo_mac.sh` | PC / Mac | 아래 실행 과정을 명령어 하나로 (바로 아래 'Windows·macOS 한 번에 실행') |
 
 ## Windows·macOS 한 번에 실행 (Pi 없이 PC 한 대로 비전 + Unity + e-Call)
 
@@ -33,18 +33,19 @@ PC (send_test_trigger.py)              Pi (Mosquitto + ecall_service.py)        
 비전·생체신호는 저장해 둔 E4 분석 결과(영상 포함)를 CAN danger 시나리오와 함께 재생한다.
 Unity에서 Play를 누르면 위험 판단 → 비상등·갓길 정차 → e-Call 전송이 진행되고, **e-Call이 도착하는 순간 브라우저에 수신 화면(http://localhost:8765)이 열린다.**
 
-**Windows** (PowerShell, 저장소 루트에서) — `run_e4_demo.ps1`
+**Windows** (PowerShell, 저장소 루트에서) — `ecall_mqtt/run_e4_demo.ps1`
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\run_e4_demo.ps1
+powershell -ExecutionPolicy Bypass -File .\ecall_mqtt\run_e4_demo.ps1
 ```
 
-**macOS** (터미널, 저장소 루트에서) — `run_e4_demo_mac.sh` (Windows 와 명령어가 다르다)
+**macOS** (터미널, 저장소 루트에서) — `ecall_mqtt/run_e4_demo_mac.sh` (Windows 와 명령어가 다르다)
 
 ```bash
-bash run_e4_demo_mac.sh
+bash ecall_mqtt/run_e4_demo_mac.sh
 ```
 
+- 스크립트는 자기 위치(`ecall_mqtt`) 기준으로 경로를 찾으므로 어느 폴더에서 실행해도 된다(`ecall_mqtt` 안이면 `.\run_e4_demo.ps1`, `bash run_e4_demo_mac.sh`).
 - `-ExecutionPolicy Bypass`(Windows)는 이번 실행에만 스크립트 실행 제한을 푼다(시스템 설정은 그대로).
 - **끝내기**: 스크립트를 실행한 창에서 Ctrl+C(또는 창 닫기). 같이 띄운 e-Call 서비스·수신 화면도 꺼진다. 다시 실행하면 이전에 남은 서버를 먼저 정리한다.
 - **다시 시연**: 수신 화면에서 R(대기 화면으로) → Unity Play 다시.
@@ -70,8 +71,8 @@ bash run_e4_demo_mac.sh
 | 재생할 분석 결과 폴더 | `-Recording` (`E4_RECORDING`) | `E4_RECORDING` | 위 4번 자동 탐색 |
 | MQTT 브로커 | `-Broker` (`BROKER`) | `BROKER` | `localhost` (Pi 를 쓰면 Pi IP. 이때 PC 에서 `ecall_service.py` 는 띄우지 않음) |
 
-예: `powershell -ExecutionPolicy Bypass -File .\run_e4_demo.ps1 -UnityProject "D:\Unity\DriverSim" -Broker 192.168.0.64`
-예: `UNITY_PROJECT="$HOME/Unity/DriverSim" bash run_e4_demo_mac.sh`
+예: `powershell -ExecutionPolicy Bypass -File .\ecall_mqtt\run_e4_demo.ps1 -UnityProject "D:\Unity\DriverSim" -Broker 192.168.0.64`
+예: `UNITY_PROJECT="$HOME/Unity/DriverSim" bash ecall_mqtt/run_e4_demo_mac.sh`
 
 ### 알아둘 점
 

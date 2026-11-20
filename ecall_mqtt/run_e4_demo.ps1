@@ -1,7 +1,8 @@
 ﻿# Windows 한 번에 실행: Unity 에디터 + e-Call 서비스 + e-Call 수신 화면 + 차량 서버(E4)
 #
-#   powershell -ExecutionPolicy Bypass -File .\run_e4_demo.ps1          # 저장된 E4 분석 결과 + CAN danger 재생
-#   powershell -ExecutionPolicy Bypass -File .\run_e4_demo.ps1 -Live    # 모델이 E4 영상·생체신호를 지금 분석 (실시간)
+#   (저장소 루트에서) powershell -ExecutionPolicy Bypass -File .\ecall_mqtt\run_e4_demo.ps1         # 저장된 E4 분석 결과 + CAN danger 재생
+#   (저장소 루트에서) powershell -ExecutionPolicy Bypass -File .\ecall_mqtt\run_e4_demo.ps1 -Live   # 모델이 E4 영상·생체신호를 지금 분석 (실시간)
+#   경로는 이 파일 위치(ecall_mqtt) 기준으로 찾으므로 어느 폴더에서 실행해도 된다.
 #
 # 실행 후 Unity 에서 BasicDrivingStage1 씬을 열고 Play 를 누른다. 갓길 정차 후 e-Call 이 오면
 # 브라우저에 e-Call 수신 화면(http://localhost:8765)이 열린다. 이 창에서 Ctrl+C(또는 창 닫기)로 모두 종료.
@@ -15,9 +16,9 @@ param(
     [string]$Broker = $(if ($env:BROKER) { $env:BROKER } else { 'localhost' })   # Pi 를 쓰면 Pi IP
 )
 $ErrorActionPreference = 'Stop'
-$root = $PSScriptRoot
+$ecallDir = $PSScriptRoot                     # 이 스크립트가 있는 ecall_mqtt 폴더
+$root = Split-Path $ecallDir -Parent          # 저장소 루트
 $modelRoot = Join-Path $root 'driver-state-monitoring-system'
-$ecallDir = Join-Path $root 'ecall_mqtt'
 $tag = if ($Live) { '[LIVE]' } else { '[DEMO]' }
 function Fail($msg) { Write-Host "$tag $msg" -ForegroundColor Red; exit 1 }
 

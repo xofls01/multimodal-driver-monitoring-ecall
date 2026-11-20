@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
 # macOS 한 번에 실행: Unity 에디터 + e-Call 서비스 + e-Call 수신 화면 + 차량 서버(E4)
 #
-#   bash run_e4_demo_mac.sh          # 저장된 E4 분석 결과 + CAN danger 재생
-#   bash run_e4_demo_mac.sh --live   # 모델이 E4 영상·생체신호를 지금 분석 (실시간)
+#   (저장소 루트에서) bash ecall_mqtt/run_e4_demo_mac.sh          # 저장된 E4 분석 결과 + CAN danger 재생
+#   (저장소 루트에서) bash ecall_mqtt/run_e4_demo_mac.sh --live   # 모델이 E4 영상·생체신호를 지금 분석 (실시간)
+#   경로는 이 파일 위치(ecall_mqtt) 기준으로 찾으므로 어느 폴더에서 실행해도 된다.
 #
 # 실행 후 Unity 에서 BasicDrivingStage1 씬을 열고 Play 를 누른다. 갓길 정차 후 e-Call 이 오면
 # 브라우저에 e-Call 수신 화면(http://localhost:8765)이 열린다. Ctrl+C 로 모두 종료.
 # 이 Mac 에 맞게 바꿀 값은 환경 변수로 준다. 예:
-#   UNITY_PROJECT="$HOME/My project" E4_RECORDING=driver-state-monitoring-system/outputs/local_e4_test/E4 bash run_e4_demo_mac.sh
+#   UNITY_PROJECT="$HOME/My project" E4_RECORDING="$HOME/e4_results/E4" bash ecall_mqtt/run_e4_demo_mac.sh
 set -euo pipefail
 
 LIVE=0
 [ "${1:-}" = "--live" ] && LIVE=1
 TAG="[DEMO]"; [ "$LIVE" = 1 ] && TAG="[LIVE]"
 
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"   # 이 스크립트(ecall_mqtt)의 한 단계 위 = 저장소 루트
 MODEL_ROOT="$ROOT/driver-state-monitoring-system"
 UNITY_PROJECT="${UNITY_PROJECT:-$HOME/My project}"
 E4_RECORDING="${E4_RECORDING:-}"
