@@ -4,6 +4,7 @@
     py ecall_mqtt/ecall_screen.py --demo                    # 연습용: 브로커 없이 예시 MSD 를 몇 초 뒤 표시
     py ecall_mqtt/ecall_screen.py --broker localhost --open-on-ecall   # 차량이 정차해 e-Call 이 올 때 브라우저를 연다
 
+Windows 에서는 Edge(없으면 Chrome) 앱 창으로, 화면 가로 절반 크기로 가운데에, 다른 창보다 위(항상 위)에 띄운다 (screen_window.py).
 화면에서 R 키(또는 오른쪽 아래 '초기화')를 누르면 대기 화면으로 돌아간다. --demo 에서는 초기화하면 예시를 다시 보낸다.
 같은 공유기의 폰·노트북에서도 보려면 --host 0.0.0.0 으로 켜고 http://<이 PC IP>:8765 를 연다.
 표시 문구는 폰 알림(ecall/<VIN>/text)과 같은 msd.msd_sections() 를 쓴다.
@@ -15,11 +16,11 @@ import os
 import queue
 import threading
 import uuid
-import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from msd import MEDIA_KINDS, MEDIA_KO, build_msd, msd_sections, validate_msd
 from mqtt_compat import load_config, make_client, rc_ok, topics
+from screen_window import show_screen
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PAGE = os.path.join(HERE, "ecall_screen.html")
@@ -203,9 +204,9 @@ def main():
     url = f"http://localhost:{a.http_port}/"
 
     def open_if_closed(viewers):
-        if viewers == 0:
-            print("[화면] e-Call 도착 → 브라우저 열기")
-            webbrowser.open(url)
+        # 창이 없으면 새로 열고, 이미 열려 있으면 맨 앞으로 가져온다 (Windows: 앱 창, 화면 절반 크기, 항상 위)
+        print("[화면] e-Call 도착 → 화면 " + ("열기" if viewers == 0 else "맨 앞으로"))
+        show_screen(url)
 
     vehicle_id = cfg["vehicle_id"]
     msd_topic = topics(vehicle_id)["msd"]
@@ -239,7 +240,7 @@ def main():
     server.daemon_threads = True
     print(f"[화면] {url} (끄려면 Ctrl+C)" + (" — e-Call 이 오면 브라우저가 열립니다" if a.open_on_ecall else ""))
     if not a.no_browser and not a.open_on_ecall:
-        threading.Timer(0.5, webbrowser.open, args=(url,)).start()
+        threading.Timer(0.5, show_screen, args=(url,)).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

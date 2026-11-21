@@ -24,6 +24,7 @@ PC (send_test_trigger.py)              Pi (Mosquitto + ecall_service.py)        
 | `run_vehicle_with_ecall.py` | PC | 통합본 차량 서버를 **수정 없이** e-Call 과 함께 실행 |
 | `test_ecall_link.py` | PC | Unity·Pi 없이 연결 시험 |
 | `ecall_screen.py`, `ecall_screen.html` | PC (Pi도 가능) | 받은 MSD를 터미널 대신 브라우저 화면으로 표시 (시연용, 아래 4번) |
+| `screen_window.py` | PC (Windows) | 수신 화면을 앱 창으로 화면 가로 절반 크기·가운데·항상 위에 띄움 |
 | `test_ecall_screen.py` | PC | 브로커·브라우저 없이 화면 시험 |
 | `run_e4_demo.ps1`, `run_e4_demo_mac.sh` | PC / Mac | 아래 실행 과정을 명령어 하나로 (바로 아래 'Windows·macOS 한 번에 실행') |
 
@@ -183,7 +184,7 @@ python3 send_test_trigger.py --broker localhost
 ## 4. e-Call 수신 화면 (터미널 대신 화면으로 시연)
 
 MSD 토픽(`ecall/VIN-TEST-0001/msd`)을 구독해 받은 내용을 브라우저 화면으로 보여 준다. 추가 설치는 없다(paho-mqtt만 필요).
-처음엔 "e-Call 대기 중" 화면이고, MSD가 오면 왼쪽 단계(PC·Unity → Raspberry Pi → 수신 화면)가 차례로 초록색이 되고 오른쪽에 MSD가 뜬다.
+처음엔 "e-Call 대기 중" 화면이고, MSD가 오면 화면 테두리가 한 번 빨갛게 깜빡이며 MSD 내용이 뜬다.
 표시 문구는 폰 알림(`…/text`)과 같은 `msd.msd_sections()`를 쓴다.
 
 ```bash
@@ -199,7 +200,8 @@ py ecall_mqtt\send_test_trigger.py --broker 192.168.0.64
   ```bash
   py -B ecall_mqtt\ecall_screen.py --demo
   ```
-- `--open-on-ecall`: 시작할 때가 아니라 **e-Call(MSD)이 도착할 때** 브라우저를 연다(차량이 정차한 뒤 화면이 뜨는 연출). 화면이 이미 열려 있으면 새로 열지 않는다.
+- `--open-on-ecall`: 시작할 때가 아니라 **e-Call(MSD)이 도착할 때** 화면을 연다(차량이 정차한 뒤 화면이 뜨는 연출). 화면이 이미 열려 있으면 새로 열지 않고 맨 앞으로 가져온다.
+- **Windows 창 모양**: Edge(없으면 Chrome)의 주소창 없는 앱 창으로, 작업 영역 가로 절반 × 세로 거의 전체 크기로 가운데에 띄우고 **다른 창(카톡·메모 등)보다 위(항상 위)**에 둔다. 글자 크기는 창 크기에 맞춰 커지고 작아진다. 닫기는 창의 X 또는 Alt+F4. 크기 비율은 `screen_window.py`의 `WIDTH_RATIO`, `HEIGHT_RATIO`. macOS 등은 기본 브라우저로 연다.
 - 같은 공유기의 폰·노트북에서 보려면 `--host 0.0.0.0`으로 켜고 `http://<이 PC IP>:8765`를 연다.
 - 위쪽 표시: 브로커 연결 상태, Pi 온라인/오프라인(`…/status`), `TEST CALL`.
 - MSD에 사진 링크가 있으면 오른쪽 아래 **확장 데이터**(향후 활용 예정, 표준 MSD 항목 아님) 칸에 작게 보여 준다. 사진은 Pi 웹 서버에서 열리므로 화면을 띄운 기기가 Pi와 같은 Wi-Fi여야 한다.
