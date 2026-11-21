@@ -633,16 +633,93 @@ public static class BasicDrivingSceneBuilder
         cameraObject.transform.LookAt(target.position + Vector3.up * 0.8f + target.forward * 5f);
     }
 
+    [MenuItem("Tools/Emergency Driving Demo/Apply Lightweight Daylight To Current Scene")]
+    public static void ApplyLightweightDaylightToCurrentScene()
+    {
+        Light sunlight = RenderSettings.sun;
+        if (sunlight == null || sunlight.type != LightType.Directional)
+        {
+            sunlight = null;
+            foreach (Light candidate in Object.FindObjectsOfType<Light>())
+            {
+                if (candidate.type == LightType.Directional
+                    && candidate.gameObject.scene == SceneManager.GetActiveScene())
+                {
+                    sunlight = candidate;
+                    break;
+                }
+            }
+        }
+        if (sunlight == null)
+        {
+            GameObject lightObject = new GameObject("Directional Light");
+            Undo.RegisterCreatedObjectUndo(lightObject, "Add lightweight sunlight");
+            sunlight = lightObject.AddComponent<Light>();
+        }
+        Undo.RecordObjects(new Object[] { sunlight, sunlight.transform }, "Configure lightweight daylight");
+        ConfigureDaylight(sunlight);
+        EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
+    }
+
     private static void CreateLighting()
     {
         GameObject lightObject = new GameObject("Directional Light");
         Light light = lightObject.AddComponent<Light>();
-        light.type = LightType.Directional;
-        light.intensity = 1.1f;
-        lightObject.transform.rotation = Quaternion.Euler(48f, -32f, 0f);
+        ConfigureDaylight(light);
+    }
 
-        RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
-        RenderSettings.ambientLight = new Color(0.55f, 0.55f, 0.55f);
+    private static void ConfigureDaylight(Light light)
+    {
+        light.type = LightType.Directional;
+        light.color = new Color(1f, 0.95f, 0.85f);
+        light.intensity = 1.05f;
+        light.useColorTemperature = false;
+        light.shadows = LightShadows.Hard;
+        light.shadowStrength = 0.55f;
+        if (UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline == null)
+            light.shadowResolution = UnityEngine.Rendering.LightShadowResolution.Low;
+        light.bounceIntensity = 0f;
+        light.lightmapBakeType = LightmapBakeType.Realtime;
+        light.transform.rotation = Quaternion.Euler(48f, -32f, 0f);
+
+        // One sun with a short-range hard shadow; no soft filtering or GI bake.
+        ConfigureLightweightShadows();
+        RenderSettings.sun = light;
+        RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Trilight;
+        RenderSettings.ambientSkyColor = new Color(0.58f, 0.66f, 0.75f);
+        RenderSettings.ambientEquatorColor = new Color(0.42f, 0.46f, 0.5f);
+        RenderSettings.ambientGroundColor = new Color(0.22f, 0.25f, 0.21f);
+        RenderSettings.ambientIntensity = 1f;
+    }
+
+    private static void ConfigureLightweightShadows()
+    {
+        UnityEngine.Rendering.RenderPipelineAsset pipeline =
+            UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline;
+        if (pipeline == null)
+        {
+            QualitySettings.shadows = ShadowQuality.HardOnly;
+            QualitySettings.shadowResolution = ShadowResolution.Low;
+            QualitySettings.shadowDistance = 25f;
+            QualitySettings.shadowCascades = 0;
+            return;
+        }
+
+        // URP owns shadow resolution/distance; changing Light alone leaves the
+        // project's expensive 2048px / four-cascade defaults in effect.
+        SerializedObject settings = new SerializedObject(pipeline);
+        SerializedProperty resolution = settings.FindProperty("m_MainLightShadowmapResolution");
+        if (resolution == null) return;
+        Undo.RecordObject(pipeline, "Configure lightweight sunlight shadows");
+        settings.FindProperty("m_MainLightShadowsSupported").boolValue = true;
+        resolution.intValue = 1024;
+        settings.FindProperty("m_ShadowDistance").floatValue = 25f;
+        settings.FindProperty("m_ShadowCascadeCount").intValue = 1;
+        settings.FindProperty("m_SoftShadowsSupported").boolValue = false;
+        settings.FindProperty("m_AdditionalLightShadowsSupported").boolValue = false;
+        settings.ApplyModifiedProperties();
+        EditorUtility.SetDirty(pipeline);
+        AssetDatabase.SaveAssetIfDirty(pipeline);
     }
 
     private static void CreateSegmentLine(

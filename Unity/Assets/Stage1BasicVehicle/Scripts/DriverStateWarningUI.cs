@@ -15,9 +15,14 @@ public class DriverStateWarningUI : MonoBehaviour
     [Range(200f, 2000f)] public float warningFrequencyHz = 880f;
     [Range(0.05f, 1f)] public float warningDurationSeconds = 0.28f;
 
+    [Header("Caution Window Reminder")]
+    public Sprite windowReminderSprite;
+
     private string previousDriverState = "Normal";
     private const float WarningRepeatIntervalSeconds = 0.5f;
-    private const int TextRenderScale = 2;
+    private const float WindowReminderDurationSeconds = 3f;
+    private const float NoticeScale = 1.5f;
+    private const int TextRenderScale = 3;
     private float nextWarningTime;
     private AudioSource audioSource;
     private AudioClip warningClip;
@@ -31,6 +36,13 @@ public class DriverStateWarningUI : MonoBehaviour
     private Sprite noticeOutlineSprite;
     private RectTransform cautionNotice;
     private CanvasGroup cautionNoticeGroup;
+    private GameObject windowReminder;
+    private Image windowReminderIcon;
+    private Image windowReminderBackground;
+    private Text windowReminderText;
+    private float windowReminderBrightness;
+    private float windowReminderUntil = -1f;
+    private bool windowReminderWasCaution;
 
     private void Awake()
     {
@@ -83,6 +95,7 @@ public class DriverStateWarningUI : MonoBehaviour
         SetActive(emergencyPanel, false);
         CreateAssistNotice();
         StyleCautionNotice();
+        CreateWindowReminder();
         StyleEmergencyNotice();
     }
 
@@ -125,6 +138,7 @@ public class DriverStateWarningUI : MonoBehaviour
             && emergencyController.IsEmergencyActive;
         UpdateAssistNotice(state, emergencyActive);
         UpdateCautionNotice(state == "Caution" && !emergencyActive, emergencyActive || state == "Danger");
+        UpdateWindowReminder(state == "Caution" && !emergencyActive, emergencyActive || state == "Danger");
         if (previousDriverState == "Caution" && (emergencyActive || state != "Caution"))
         {
             if (audioSource != null)
@@ -189,6 +203,89 @@ public class DriverStateWarningUI : MonoBehaviour
             new Vector2(740f, 148f));
     }
 
+    private void CreateWindowReminder()
+    {
+        Canvas canvas = GetComponentInParent<Canvas>();
+        if (canvas == null || assistNoticeSprite == null) return;
+        Sprite sprite = windowReminderSprite != null ? windowReminderSprite
+            : Resources.Load<Sprite>("Stage1BasicVehicle/window");
+        if (sprite == null)
+        {
+            Debug.LogWarning("Caution window reminder sprite is missing.", this);
+            return;
+        }
+
+        windowReminder = new GameObject("CautionWindowReminder", typeof(RectTransform));
+        windowReminder.transform.SetParent(canvas.transform, false);
+        RectTransform rect = windowReminder.GetComponent<RectTransform>();
+        rect.anchorMin = rect.anchorMax = Vector2.zero;
+        rect.pivot = Vector2.zero;
+        rect.sizeDelta = new Vector2(144f, 144f);
+        rect.anchoredPosition = new Vector2(36f, 36f);
+        windowReminderBackground = CreateNoticeImage(rect, "WindowReminderBackground",
+            rect.sizeDelta, Vector2.zero, new Color(0f, 0f, 0f, 0.28f));
+
+        GameObject iconObject = new GameObject("WindowIcon", typeof(RectTransform), typeof(Image));
+        iconObject.transform.SetParent(rect, false);
+        RectTransform iconRect = iconObject.GetComponent<RectTransform>();
+        iconRect.anchorMin = iconRect.anchorMax = new Vector2(0.5f, 0.5f);
+        iconRect.sizeDelta = new Vector2(128f, 128f);
+        windowReminderIcon = iconObject.GetComponent<Image>();
+        windowReminderIcon.sprite = sprite;
+        windowReminderIcon.preserveAspect = true;
+        windowReminderIcon.raycastTarget = false;
+        windowReminderIcon.color = new Color(0.42f, 0.46f, 0.5f, 0.4f);
+
+        windowReminderText = CreateNoticeText(rect, "WindowOperationText", 28,
+            new Vector2(180f, 0f), new Vector2(180f, 88f), Color.clear);
+        windowReminderText.text = "창문 자동\n개방 중";
+        windowReminderText.fontStyle = FontStyle.Bold;
+        windowReminderText.gameObject.SetActive(false);
+    }
+
+    private void UpdateWindowReminder(bool cautionActive, bool emergencyActive)
+    {
+        if (windowReminder == null) return;
+        if (emergencyActive)
+        {
+            windowReminderUntil = -1f;
+            windowReminderWasCaution = false;
+            windowReminderBrightness = 0f;
+            SetActive(windowReminder, false);
+            return;
+        }
+        SetActive(windowReminder, true);
+        if (!cautionActive)
+        {
+            windowReminderUntil = -1f;
+            windowReminderWasCaution = false;
+        }
+        else if (!windowReminderWasCaution)
+        {
+            // Illuminate once per Caution entry, not on every TCP packet.
+            windowReminderUntil = Time.unscaledTime + WindowReminderDurationSeconds;
+            windowReminderWasCaution = true;
+        }
+
+        // Quick switch-on and a short dimming tail within the three-second interval.
+        float target = cautionActive
+            ? Mathf.Clamp01((windowReminderUntil - Time.unscaledTime) / 0.15f) : 0f;
+        float response = target > windowReminderBrightness ? 12f : 8f;
+        windowReminderBrightness = Mathf.MoveTowards(windowReminderBrightness,
+            target, Time.unscaledDeltaTime * response);
+        windowReminderIcon.color = Color.Lerp(new Color(0.42f, 0.46f, 0.5f, 0.4f),
+            new Color(0.96f, 0.99f, 1f, 1f), windowReminderBrightness);
+        windowReminderBackground.color = Color.Lerp(new Color(0f, 0f, 0f, 0.28f),
+            new Color(0.08f, 0.11f, 0.14f, 0.75f), windowReminderBrightness);
+        // Expand behind the caption only while lit; keep the idle indicator compact.
+        float backgroundWidth = Mathf.Lerp(144f, 360f, windowReminderBrightness);
+        windowReminderBackground.rectTransform.sizeDelta = new Vector2(backgroundWidth, 144f);
+        windowReminderBackground.rectTransform.anchoredPosition =
+            new Vector2((backgroundWidth - 144f) * 0.5f, 0f);
+        windowReminderText.color = new Color(0.96f, 0.99f, 1f, windowReminderBrightness);
+        SetActive(windowReminderText.gameObject, windowReminderBrightness > 0.01f);
+    }
+
     private RectTransform StyleStateNotice(GameObject panel, Text message, string prefix,
         string captionText, Color accent, Color background, Vector2 size)
     {
@@ -205,6 +302,7 @@ public class DriverStateWarningUI : MonoBehaviour
         rect.pivot = new Vector2(0.5f, 0.5f);
         rect.sizeDelta = size;
         rect.anchoredPosition = Vector2.zero;
+        rect.localScale = Vector3.one * NoticeScale;
         Image oldBackground = panel.GetComponent<Image>();
         if (oldBackground != null)
         {
@@ -280,6 +378,7 @@ public class DriverStateWarningUI : MonoBehaviour
         assistNotice.pivot = new Vector2(0.5f, 0.5f);
         assistNotice.sizeDelta = new Vector2(540f, 88f);
         assistNotice.anchoredPosition = new Vector2(0f, 90f);
+        assistNotice.localScale = Vector3.one * NoticeScale;
         assistNoticeGroup = notice.GetComponent<CanvasGroup>();
         assistNoticeGroup.alpha = 0f;
         assistNoticeGroup.interactable = false;
@@ -336,7 +435,7 @@ public class DriverStateWarningUI : MonoBehaviour
         return sprite;
     }
 
-    private void CreateNoticeImage(Transform parent, string objectName, Vector2 size, Vector2 position, Color color,
+    private Image CreateNoticeImage(Transform parent, string objectName, Vector2 size, Vector2 position, Color color,
         bool outline = false)
     {
         GameObject item = new GameObject(objectName, typeof(RectTransform), typeof(Image));
@@ -351,6 +450,7 @@ public class DriverStateWarningUI : MonoBehaviour
         image.fillCenter = !outline;
         image.color = color;
         image.raycastTarget = false;
+        return image;
     }
 
     private Text CreateNoticeText(Transform parent, string objectName, int fontSize, Vector2 position, Vector2 size, Color color)
