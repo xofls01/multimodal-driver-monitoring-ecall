@@ -3,7 +3,7 @@
   "files": {
     "requirements.txt": "4e1c98d410a89d54827a48052db3912fc936bfc141f2562396f8bb39a0bbddff",
     "run.sh": "6ac0c5596f7977d1e148f48770693c10773c3d59078af3f5ee8861c5c156a306",
-    "README.md": "bd3479bc808d18bb6d70902c05ed5c6ba6fbcdeb1562acd4a5368e06c82a7e7b",
+    "README.md": "00459629ce0cc178bf810dd889f59bf340a9dce351e85fccdf0880e61372be30",
     "run_multimodal.sh": "fe56ab56faf2c135c2386d9abf461e824eb8a366d72d7077ed6645d0e82057cc",
     ".gitignore": "0315e988130ebbb15fadb88fdaf5bd6a4097d02a4485f4f9082da08f7b87095b",
     "requirements-lock.txt": "4f3e955a838484d61ebbbf725bcea5d21ec8c9144abf2f2bd33ba6ee4596161a",
@@ -132,9 +132,9 @@
     "src/biosignal/dashboard.py": "896ec89bc0d73271f0265e3e12258ea6e3d61f6fd9ad807ac5f332af0ef30b7d",
     "src/biosignal/live.py": "a4bcf425ac18ce805f0d57a4905f98c1c3b90618bc1d3663265771f34824c2b6",
     "src/biosignal/third_party/PAPAGEI_LICENSE": "e072079a7201f29f5c0c31ff09a995982c4905505552a8237f00aa918aae6e15",
-    "src/driver_state_tools/landmark_overlay.py": "6522f8d71fa9a0cb08f5a17c9470005ee69f55247e6549222713ae40317bfa59",
+    "src/driver_state_tools/landmark_overlay.py": "9ab624089e6c79cb58869249b731710a6ca5b159c51a083ac9500e276b01776c",
     "src/driver_state_tools/presentation_dashboard.py": "6c62ba5767d99d05e9258877fab9b31d3642a348a84b2a1862b9dab636463ba9",
-    "scripts/render_bold_landmarks.py": "9746ef4efb0a8c7aa9ac8fc491d802456bc9c78a826cbe428d4b61826c257ae6",
+    "scripts/render_bold_landmarks.py": "edadf8793b7864d1328dbf5abfea977d8ba22d0301d0af62f9f08864576fe359",
     "scripts/rerender_large_text.py": "8d693a6ba9b7584cff4b96f1e95d43491de7feff0b664ce134f8faf86126468c"
   },
   "default_entrypoint": "scripts/run_multimodal_system.py",
