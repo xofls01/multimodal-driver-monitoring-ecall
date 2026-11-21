@@ -1,101 +1,80 @@
-"""High-contrast camera annotations. This module never changes driver decisions."""
+"""Original landmark colors, with one additional pixel at 720p. No state calculations."""
 import cv2
 import numpy as np
 
-# OpenCV BGR. Keep feature colors separate from the state-colored outer border.
-FEATURE_COLORS = {
-    "face": (245, 232, 210),
-    "eyes": (160, 220, 80),
-    "pose": (255, 155, 65),
-    "hands": (90, 190, 255),
-    "closed": (100, 95, 245),
-    "phone": (255, 110, 80),
-    "muted": (150, 160, 177),
+COLORS = {
+    "face": (245, 207, 60), "eyes": (149, 239, 121),
+    "pose": (245, 155, 182), "hands": (68, 195, 250),
+    "phone": (214, 108, 244), "muted": (150, 160, 177),
+    "drink": (202, 210, 85), "food": (86, 180, 255),
+    "utensil": (170, 199, 235), "other": (209, 177, 191),
+    "normal": (147, 226, 105), "caution": (62, 194, 253),
+    "danger": (89, 87, 250), "unavailable": (157, 165, 183),
 }
-EYE_RINGS = ((33, 160, 158, 133, 153, 144), (362, 385, 387, 263, 373, 380))
-MOUTH_RING = (78, 81, 13, 311, 308, 402, 14, 178)
-POSE_EDGES = ((5, 6), (5, 11), (6, 12), (11, 12), (5, 7), (7, 9), (6, 8), (8, 10))
+EYE_RINGS = ((33,160,158,133,153,144), (362,385,387,263,373,380))
+MOUTH_RING = (78,81,13,311,308,402,14,178)
 
+FEATURE_COLORS = {key:COLORS[key] for key in ('face','eyes','pose','hands','phone','muted')}
+FEATURE_COLORS['closed'] = COLORS['danger']
 
 def draw_landmarks(frame, raw, derived, config=None):
-    """Draw only available coordinates, with a dark outline on every bright line."""
-    config = config or {}
+    cfg = config or {}
     scene = frame.copy()
-    height = frame.shape[0]
-    scale = height / 720
-    dark = (14, 12, 16)
-    face_width = max(2, round(config.get("overlay_face_line_pixels", 3) * scale))
-    eye_width = max(2, round(config.get("overlay_eye_line_pixels", 3) * scale))
-    pose_width = max(3, round(config.get("overlay_pose_line_pixels", 5) * scale))
-    hand_width = max(2, round(config.get("overlay_hand_line_pixels", 3) * scale))
-    outline = max(2, round(config.get("overlay_outline_pixels", 3) * scale))
-
-    def line(a, b, color, width):
-        a, b = tuple(map(round, a[:2])), tuple(map(round, b[:2]))
-        cv2.line(scene, a, b, dark, width + outline, cv2.LINE_AA)
-        cv2.line(scene, a, b, color, width, cv2.LINE_AA)
-
-    def ring(points, color, width):
-        points = np.asarray(points, np.int32)
-        cv2.polylines(scene, [points], True, dark, width + outline, cv2.LINE_AA)
-        cv2.polylines(scene, [points], True, color, width, cv2.LINE_AA)
-
-    def label(value, xy, color):
-        xy = (max(4, round(xy[0])), max(22, min(height - 8, round(xy[1]))))
-        cv2.putText(scene, value, xy, cv2.FONT_HERSHEY_SIMPLEX, .48 * scale,
-                    dark, max(3, round(5 * scale)), cv2.LINE_AA)
-        cv2.putText(scene, value, xy, cv2.FONT_HERSHEY_SIMPLEX, .48 * scale,
-                    color, max(1, round(1.5 * scale)), cv2.LINE_AA)
-
+    h, w = frame.shape[:2]
+    scale = h / 720
+    thick = max(1, round(scale*1.5)) + max(1,round(scale))
+    muted = COLORS['muted']
     def brackets(box, color):
-        x1, y1, x2, y2 = map(round, box[:4])
-        size = max(5, min(round(22 * scale), (x2 - x1) // 4, (y2 - y1) // 4))
-        for x, y, dx, dy in ((x1, y1, 1, 1), (x2, y1, -1, 1),
-                              (x1, y2, 1, -1), (x2, y2, -1, -1)):
-            line((x, y), (x + dx * size, y), color, face_width)
-            line((x, y), (x, y + dy * size), color, face_width)
+        x1,y1,x2,y2 = map(int, box[:4])
+        size = max(5,min(round(20*scale), (x2-x1)//4, (y2-y1)//4))
+        for x,y,dx,dy in ((x1,y1,1,1),(x2,y1,-1,1),(x1,y2,1,-1),(x2,y2,-1,-1)):
+            cv2.line(scene,(x,y),(x+dx*size,y),color,thick,cv2.LINE_AA)
+            cv2.line(scene,(x,y),(x,y+dy*size),color,thick,cv2.LINE_AA)
 
     if raw.face_box:
-        brackets(raw.face_box, FEATURE_COLORS["face"] if raw.face_readable else FEATURE_COLORS["muted"])
+        brackets(raw.face_box, COLORS["face"] if raw.face_readable else muted)
     if derived.eyes_readable:
-        color = FEATURE_COLORS["closed"] if derived.eyes_closed else FEATURE_COLORS["eyes"]
-        for indices in EYE_RINGS:
-            if all(i in raw.face_landmarks for i in indices):
-                ring([raw.face_landmarks[i] for i in indices], color, eye_width)
+        for ring in EYE_RINGS:
+            if all(i in raw.face_landmarks for i in ring):
+                pts = np.asarray([raw.face_landmarks[i] for i in ring], np.int32)
+                cv2.polylines(scene,[pts],True,COLORS["danger"] if derived.eyes_closed else COLORS["eyes"],thick,cv2.LINE_AA)
     if derived.mouth_open and all(i in raw.face_landmarks for i in MOUTH_RING):
-        ring([raw.face_landmarks[i] for i in MOUTH_RING], FEATURE_COLORS["face"], eye_width)
-    for a, b in POSE_EDGES:
-        p, q = raw.pose_keypoints.get(a), raw.pose_keypoints.get(b)
-        if p and q and min(p[2], q[2]) >= .3:
-            line(p, q, FEATURE_COLORS["pose"], pose_width)
-    radius = max(3, round(config.get("overlay_joint_radius_pixels", 5) * scale))
-    for i in (5, 6, 7, 8, 9, 10, 11, 12):
-        point = raw.pose_keypoints.get(i)
-        if point and point[2] >= .3:
-            xy = tuple(map(round, point[:2]))
-            cv2.circle(scene, xy, radius + max(2, round(3 * scale)), dark, -1, cv2.LINE_AA)
-            cv2.circle(scene, xy, radius, FEATURE_COLORS["pose"], -1, cv2.LINE_AA)
+        cv2.polylines(scene,[np.asarray([raw.face_landmarks[i] for i in MOUTH_RING],np.int32)],True,COLORS["hands"],thick,cv2.LINE_AA)
+    for a,b in ((5,6),(5,11),(6,12),(11,12),(5,7),(7,9),(6,8),(8,10)):
+        p,q = raw.pose_keypoints.get(a),raw.pose_keypoints.get(b)
+        if p and q and min(p[2],q[2]) >= .3:
+            cv2.line(scene,tuple(map(int,p[:2])),tuple(map(int,q[:2])),COLORS["pose"],thick,cv2.LINE_AA)
+    for i in (5,6,7,8,9,10,11,12):
+        p = raw.pose_keypoints.get(i)
+        if p and p[2] >= .3:
+            cv2.circle(scene,tuple(map(int,p[:2])),max(2,round(3*scale))+max(1,round(scale)),COLORS["pose"],-1,cv2.LINE_AA)
     for index, hand in enumerate(raw.hand_landmarks):
-        if len(hand) < 18:
-            continue
-        palm = [hand[i][:2] for i in (0, 5, 9, 13, 17)]
-        ring(palm, FEATURE_COLORS["hands"], hand_width)
+        palm = np.asarray([hand[i][:2] for i in (0,5,9,13,17)],np.int32)
         on_chest = index < len(raw.hand_on_chest) and raw.hand_on_chest[index]
+        cv2.polylines(scene,[palm],True,COLORS["hands"],thick + int(on_chest),cv2.LINE_AA)
         if on_chest:
-            label("HAND NEAR CHEST", (min(p[0] for p in palm), max(p[1] for p in palm) + 22 * scale),
-                  FEATURE_COLORS["hands"])
+            label = "HAND NEAR CHEST"
+            xy = (max(0, int(palm[:,0].min())), min(h-round(8*scale),int(palm[:,1].max())+round(20*scale)))
+            cv2.putText(scene,label,xy,cv2.FONT_HERSHEY_SIMPLEX,.4*scale,(20,20,20),max(2,thick+2),cv2.LINE_AA)
+            cv2.putText(scene,label,xy,cv2.FONT_HERSHEY_SIMPLEX,.4*scale,COLORS["hands"],thick,cv2.LINE_AA)
     for box in raw.phone_boxes:
-        brackets(box, FEATURE_COLORS["phone"])
-        label("PHONE CANDIDATE", (box[0], box[1] - 8 * scale), FEATURE_COLORS["phone"])
-    object_colors = {"drink": (255, 220, 40), "food": (40, 180, 255),
-                     "utensil": (90, 230, 255), "other": (200, 170, 240)}
+        brackets(box,COLORS["phone"])
+        label = "PHONE CANDIDATE"
+        xy = (max(0,box[0]),max(round(20*scale),box[1]-round(6*scale)))
+        cv2.putText(scene,label,xy,cv2.FONT_HERSHEY_SIMPLEX,.35*scale,(20,20,20),max(2,thick+2),cv2.LINE_AA)
+        cv2.putText(scene,label,xy,cv2.FONT_HERSHEY_SIMPLEX,.35*scale,COLORS["phone"],thick,cv2.LINE_AA)
     for item in getattr(raw, "handheld_objects", []):
-        color = object_colors.get(item["category"], FEATURE_COLORS["phone"])
-        brackets(item["box"], color)
-        suffix = " CANDIDATE" if item["mode"] == "detected" else " TRACK"
-        label(item["label"].upper() + suffix, (item["box"][0], item["box"][1] - 8 * scale), color)
-    if config.get("overlay_show_rppg_rois", False):
-        for box in [raw.rppg_forehead_box] + raw.rppg_cheek_boxes:
+        box = item["box"]
+        color = COLORS.get(item["category"], COLORS["other"])
+        brackets(box, color)
+        label = item["label"].upper() + (" CANDIDATE" if item["mode"] == "detected" else " TRACK")
+        xy = (max(0, round(box[0])), max(round(20*scale), round(box[1])-round(6*scale)))
+        cv2.putText(scene,label,xy,cv2.FONT_HERSHEY_SIMPLEX,.35*scale,(20,20,20),max(2,thick+2),cv2.LINE_AA)
+        cv2.putText(scene,label,xy,cv2.FONT_HERSHEY_SIMPLEX,.35*scale,color,thick,cv2.LINE_AA)
+    if cfg.get("overlay_show_rppg_rois",False):
+        boxes = [raw.rppg_forehead_box] + raw.rppg_cheek_boxes
+        for box in boxes:
             if box:
-                cv2.rectangle(scene, box[:2], box[2:], (193, 180, 130), 1, cv2.LINE_AA)
+                cv2.rectangle(scene,box[:2],box[2:],(193,180,130),1,cv2.LINE_AA)
+
     return scene

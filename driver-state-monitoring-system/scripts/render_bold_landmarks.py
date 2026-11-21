@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Redraw landmark colors on clean camera frames; retain saved decisions and BPM."""
+"""Render the original landmark colors with lines one pixel thicker at 720p; retain saved decisions and BPM."""
 import argparse
 from bisect import bisect_right
 from collections import Counter
@@ -208,8 +208,8 @@ def main():
     finally:
         if models: models.close()
     (output/'verification/renderer.json').write_text(json.dumps({'passed':True, 'clips':reports,
-        'feature_colors_bgr':FEATURE_COLORS, 'line_width_pixels_at_720p': {'face':3,'eyes':3,'pose':5,'hands':3},
-        'outline_extra_width_pixels':3, 'pose_joint_radius_pixels':5,
+        'feature_colors_bgr':FEATURE_COLORS, 'line_width_pixels_at_720p': {'face':3,'eyes':3,'pose':3,'hands':3},
+        'outline_extra_width_pixels':0, 'pose_joint_radius_pixels':4, 'overlay_style':'original_colors_plus_1px',
         'note':'Drawing coordinates were extracted from camera frames or reused from the explicitly supplied geometry cache. All decisions, thresholds, BPM and filtered waveform images were retained.'}, indent=2)+'\n')
     print('All outputs verified:', output, flush=True)
 
