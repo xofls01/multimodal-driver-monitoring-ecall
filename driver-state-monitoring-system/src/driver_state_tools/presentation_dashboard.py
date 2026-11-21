@@ -85,7 +85,7 @@ def draw_large_rail(decision,config,rppg=None):
     text('PROTOTYPE / NOT A MEDICAL DIAGNOSIS',24,704,13,muted)
     return im
 
-def draw_large_multimodal(source_frame,combined,vision,bio,rate,config):
+def draw_large_multimodal(source_frame,combined,vision,bio,rate,config,camera_frame=None):
     """Reuse the camera and filtered-waveform pixels from a verified old result.
 
     No model, signal filter, fusion rule, or BPM estimator executes here.
@@ -94,7 +94,8 @@ def draw_large_multimodal(source_frame,combined,vision,bio,rate,config):
     """
     if source_frame.shape[:2]!=(1034,1756):raise ValueError('Unexpected source video geometry')
     border=8;h=720;w=1904;header=92;footer=252
-    camera=source_frame[84:804,8:1288]
+    camera=source_frame[84:804,8:1288] if camera_frame is None else camera_frame
+    if camera.shape!=(720,1280,3):raise ValueError("Expected full 1280x720 camera frame")
     rail=draw_large_rail(vision,config)
     im=Image.new('RGB',(w,h+header+footer),(9,17,26))
     im.paste(Image.fromarray(cv2.cvtColor(camera,cv2.COLOR_BGR2RGB)),(0,header))
