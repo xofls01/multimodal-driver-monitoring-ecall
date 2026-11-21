@@ -34,6 +34,8 @@ PC (send_test_trigger.py)              Pi (Mosquitto + ecall_service.py)        
 비전·생체신호는 저장해 둔 E4 분석 결과(영상 포함)를 CAN danger 시나리오와 함께 재생한다.
 Unity에서 Play를 누르면 위험 판단 → 비상등·갓길 정차 → e-Call 전송이 진행되고, **e-Call이 도착하는 순간 브라우저에 수신 화면(http://localhost:8765)이 열린다.**
 
+차량 실행 래퍼는 현재 정차 사건의 `SENT` 결과를 Unity에도 전달한다. Unity 왼쪽 아래에 체크 표시와 **e-Call 전송 완료**가 소리 없이 3초간 나타난다. 같은 결과의 재수신은 표시를 반복하지 않는다. `SENT`는 서비스의 MQTT 브로커 발행 확인이며, 폰의 열람 확인은 아니다. 기존 전송·결과 로그·웹 수신 화면 동작은 그대로 유지한다.
+
 **Windows** (PowerShell, 저장소 루트에서) — `ecall_mqtt/run_e4_demo.ps1`
 
 ```powershell
