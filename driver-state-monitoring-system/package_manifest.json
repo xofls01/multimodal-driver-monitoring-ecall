@@ -3,9 +3,9 @@
   "files": {
     "requirements.txt": "4e1c98d410a89d54827a48052db3912fc936bfc141f2562396f8bb39a0bbddff",
     "run.sh": "6ac0c5596f7977d1e148f48770693c10773c3d59078af3f5ee8861c5c156a306",
-    "README.md": "adb65ffeddc620e392db3dcb48f0b0ff653e8ccdbd2b9278e4757fb034cf7e7a",
+    "README.md": "bd3479bc808d18bb6d70902c05ed5c6ba6fbcdeb1562acd4a5368e06c82a7e7b",
     "run_multimodal.sh": "fe56ab56faf2c135c2386d9abf461e824eb8a366d72d7077ed6645d0e82057cc",
-    ".gitignore": "c668ccadfc7877cf0db41a3b979e0880a731e6aea4017f64f3592f29bfcb3d36",
+    ".gitignore": "0315e988130ebbb15fadb88fdaf5bd6a4097d02a4485f4f9082da08f7b87095b",
     "requirements-lock.txt": "4f3e955a838484d61ebbbf725bcea5d21ec8c9144abf2f2bd33ba6ee4596161a",
     "config/vision_baseline.json": "bf368a0916c8d6f86d6f913a51f9d72cb3455a3071add1b64e66b34e6b9c9366",
     "config/gaze_model_metadata.example.json": "d2508eb5c037671435f2137127b35ae6a06375a2abc98f769ee51e939f126586",
@@ -108,7 +108,7 @@
     "src/driver_state_tools/decision_engine.py": "89f72dfa75a393212e917a158e8312b65cb37fe40e2d2cc761ba8a0f823c9240",
     "src/driver_state_tools/multimodal_dashboard.py": "4f11daad5582bfaa6fe223a15adc448f62e57d8b4c9b8f0cbfb3ebf8399e2b32",
     "src/driver_state_tools/literature_engine.py": "51f67cd0eb8dbce6f30f8f7339c575f2337bc5f703a3ed029e2cb3aa3b3ee095",
-    "src/driver_state_tools/dashboard.py": "630819acb528dcdfb152a1353c9f856b0b15ca20ad1c5653b300722579474bcd",
+    "src/driver_state_tools/dashboard.py": "332def6d1d40b7d1d150a20962d46ef100dff1196e59173eeb2fcbfd96600730",
     "src/driver_state_tools/multimodal_fusion.py": "db8575acdad17f203845abca641a7ba8b5b47d113a26f7160cf178592019f086",
     "src/driver_state_tools/biosignal_replay.py": "4a5336683fe2d19e4ab9c47a333ce123b57a8d2cac4cda7cc85c7c56e90c5b36",
     "src/driver_state_tools/prototype_engine.py": "b2687eb03ca2cb58a6ee48fd0ad43ffcc1697a9d75273b193af33d432cc5d26e",
@@ -131,7 +131,11 @@
     "src/biosignal/README.md": "b78822330082863b33c5d008ceeebff8e74a792042112928570823cea4d43e3b",
     "src/biosignal/dashboard.py": "896ec89bc0d73271f0265e3e12258ea6e3d61f6fd9ad807ac5f332af0ef30b7d",
     "src/biosignal/live.py": "a4bcf425ac18ce805f0d57a4905f98c1c3b90618bc1d3663265771f34824c2b6",
-    "src/biosignal/third_party/PAPAGEI_LICENSE": "e072079a7201f29f5c0c31ff09a995982c4905505552a8237f00aa918aae6e15"
+    "src/biosignal/third_party/PAPAGEI_LICENSE": "e072079a7201f29f5c0c31ff09a995982c4905505552a8237f00aa918aae6e15",
+    "src/driver_state_tools/landmark_overlay.py": "6522f8d71fa9a0cb08f5a17c9470005ee69f55247e6549222713ae40317bfa59",
+    "src/driver_state_tools/presentation_dashboard.py": "6c62ba5767d99d05e9258877fab9b31d3642a348a84b2a1862b9dab636463ba9",
+    "scripts/render_bold_landmarks.py": "9746ef4efb0a8c7aa9ac8fc491d802456bc9c78a826cbe428d4b61826c257ae6",
+    "scripts/rerender_large_text.py": "8d693a6ba9b7584cff4b96f1e95d43491de7feff0b664ce134f8faf86126468c"
   },
   "default_entrypoint": "scripts/run_multimodal_system.py",
   "runtime_assets_in_git": false,
