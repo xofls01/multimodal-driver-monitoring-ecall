@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>e-Call 수신 화면</title>
+<style>
+  /* 모든 크기는 --u(창 높이의 1%, 좁으면 가로 기준)로 맞춘다. 창을 키우면 글자도 같이 커진다.
+     기본 창: 화면 가로 절반 × 세로 거의 전체 (screen_window.py) */
+  :root {
+    --bg: #0e1828; --card: #18263c; --line: #344864; --txt: #e2e9f2; --muted: #8c9cb4;
+    --red: #eb4848; --green: #34c778; --amber: #f5a623; --dim: #22324c;
+    --u: min(1vh, 1.2vw);
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--txt); line-height: 1.4;
+    font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; }
+  body { display: flex; flex-direction: column; height: 100vh; padding: calc(2.2 * var(--u)) calc(3 * var(--u)) calc(1.6 * var(--u)); }
+  body.flash::after { content: ""; position: fixed; inset: 0; pointer-events: none;
+    box-shadow: inset 0 0 0 6px var(--red); animation: flash 1.6s ease-out forwards; }
+  @keyframes flash { 0%, 40% { opacity: 1; } 100% { opacity: 0; } }
+
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: calc(1.2 * var(--u));
+    padding-bottom: calc(1.5 * var(--u)); border-bottom: 2px solid var(--line); }
+  .dot { width: calc(2 * var(--u)); height: calc(2 * var(--u)); border-radius: 50%; background: var(--muted); flex: none; }
+  .live .dot { background: var(--red); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 calc(0.8 * var(--u)) rgba(235, 72, 72, .25); } }
+  h1 { margin: 0; font-size: calc(3.2 * var(--u)); font-weight: 700; letter-spacing: -.5px; }
+  .chips { margin-left: auto; display: flex; gap: calc(0.7 * var(--u)); flex-wrap: wrap; justify-content: flex-end; }
+  .chip { padding: calc(0.6 * var(--u)) calc(1.2 * var(--u)); border-radius: 999px; background: var(--dim); color: var(--muted);
+    font-size: calc(1.4 * var(--u)); font-weight: 700; display: flex; align-items: center; gap: calc(0.6 * var(--u)); white-space: nowrap; }
+  .chip i { width: calc(0.8 * var(--u)); height: calc(0.8 * var(--u)); border-radius: 50%; background: var(--muted); }
+  .chip.ok i { background: var(--green); } .chip.bad i { background: var(--red); }
+  .chip.test { background: transparent; border: 2px solid var(--amber); color: var(--amber); }
+
+  main { flex: 1; display: flex; min-height: 0; padding-top: calc(1.8 * var(--u)); }
+  .right { flex: 1; display: flex; flex-direction: column; gap: calc(1.4 * var(--u)); min-width: 0; min-height: 0; }
+  .msd { flex: 1; min-height: 0; overflow: auto; background: var(--card); border: 2px solid var(--line);
+    border-radius: calc(1.6 * var(--u)); padding: calc(2.2 * var(--u)) calc(3 * var(--u)); }
+  .msd-top { display: flex; align-items: center; gap: calc(1.2 * var(--u)); }
+  .msd-top h2 { margin: 0; font-size: calc(2.8 * var(--u)); }
+  .pill { margin-left: auto; padding: calc(0.5 * var(--u)) calc(1.8 * var(--u)); border-radius: 999px; background: var(--green);
+    color: #fff; font-weight: 700; font-size: calc(2 * var(--u)); white-space: nowrap; }
+  .alert { color: var(--red); font-weight: 700; font-size: calc(2.8 * var(--u)); margin: calc(1.3 * var(--u)) 0 calc(1.2 * var(--u)); }
+  .rows { display: grid; grid-template-columns: max-content 1fr; column-gap: calc(3.2 * var(--u));
+    row-gap: calc(0.6 * var(--u)); font-size: calc(2.5 * var(--u)); }
+  .rows .k { color: var(--muted); } .rows .v { word-break: keep-all; overflow-wrap: anywhere; }
+  .rows .hot { color: var(--red); font-weight: 700; }
+  .rows .gap { grid-column: 1 / -1; height: calc(0.6 * var(--u)); }
+  .rows a { color: #7fb4ff; }
+  .warn { margin-top: calc(1.2 * var(--u)); color: var(--amber); font-size: calc(1.5 * var(--u)); }
+  .ext { flex: none; background: var(--card); border: 2px dashed var(--line); border-radius: calc(1.6 * var(--u));
+    padding: calc(0.9 * var(--u)) calc(2 * var(--u)); display: flex; align-items: center; gap: calc(2 * var(--u)); }
+  .ext-title { font-size: calc(1.6 * var(--u)); color: var(--muted); line-height: 1.5; }
+  .ext-title b { color: var(--amber); }
+  .photos { display: flex; gap: calc(1.4 * var(--u)); flex-wrap: wrap; }
+  .photos figure { margin: 0; }
+  .photos img, .photos .nophoto { height: calc(10 * var(--u)); border-radius: calc(0.8 * var(--u)); display: block; background: var(--dim); }
+  .photos .nophoto { width: calc(16 * var(--u)); display: grid; place-items: center; text-align: center; padding: calc(0.8 * var(--u));
+    font-size: calc(1.3 * var(--u)); color: var(--muted); }
+  .photos figcaption { font-size: calc(1.4 * var(--u)); color: var(--muted); margin-top: calc(0.4 * var(--u)); }
+
+  .waiting { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; gap: calc(1.4 * var(--u)); color: var(--muted); font-size: calc(2 * var(--u)); }
+  .ring { width: calc(7.4 * var(--u)); height: calc(7.4 * var(--u)); border-radius: 50%; border: 4px solid var(--line); position: relative; }
+  .ring::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 4px solid transparent;
+    border-top-color: var(--green); animation: spin 1.4s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .waiting strong { color: var(--txt); font-size: calc(3 * var(--u)); }
+
+  footer { display: flex; gap: calc(2 * var(--u)); align-items: center; padding-top: calc(1.2 * var(--u));
+    color: var(--muted); font-size: calc(1.5 * var(--u)); }
+  footer button { margin-left: auto; background: transparent; color: var(--muted); border: 1px solid var(--line);
+    border-radius: 8px; padding: calc(0.5 * var(--u)) calc(1.4 * var(--u)); font: inherit; cursor: pointer; }
+  footer button:hover { color: var(--txt); border-color: var(--muted); }
+
+  /* 폰처럼 아주 좁은 화면: 고정 크기 + 스크롤 */
+  @media (max-width: 600px) {
+    body { height: auto; min-height: 100vh; padding: 16px; }
+    h1 { font-size: 22px; } .dot { width: 16px; height: 16px; }
+    .chips { margin-left: 0; justify-content: flex-start; width: 100%; } .chip { font-size: 12px; padding: 5px 10px; }
+    main { padding-top: 14px; } .msd { overflow: visible; padding: 16px; border-radius: 14px; }
+    .msd-top h2 { font-size: 17px; } .pill { font-size: 14px; padding: 5px 12px; }
+    .alert { font-size: 18px; margin: 12px 0; }
+    .rows { font-size: 15px; column-gap: 16px; row-gap: 6px; }
+    .ext { flex-direction: column; align-items: flex-start; padding: 12px 16px; } .ext-title { font-size: 13px; }
+    .photos img, .photos .nophoto { height: 80px; } .photos figcaption { font-size: 12px; }
+    .waiting { font-size: 15px; } .waiting strong { font-size: 22px; } .ring { width: 60px; height: 60px; }
+    footer { flex-wrap: wrap; font-size: 13px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="dot"></div>
+  <h1>e-Call 수신 화면</h1>
+  <div class="chips">
+    <div class="chip" id="chip-broker"><i></i><span>브로커</span></div>
+    <div class="chip" id="chip-pi"><i></i><span>Raspberry Pi</span></div>
+    <div class="chip test">TEST CALL</div>
+  </div>
+</header>
+
+<main>
+  <section class="right">
+    <div class="msd" id="msd"></div>
+    <div class="ext" id="ext" hidden>
+      <div class="ext-title"><b>확장 데이터</b><br>운전자 상태 사진<br>(향후 활용 예정 · 표준 MSD 항목 아님)</div>
+      <div class="photos" id="photos"></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <span id="topic">MQTT 토픽 : -</span>
+  <span id="recv"></span>
+  <button id="reset" title="R 키">초기화 (R)</button>
+</footer>
+
+<script>
+  const $ = id => document.getElementById(id);
+  const HOT = new Set(["상태", "심박"]);
+  let shownId = null;
+
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  function chip(id, ok, text) {
+    const c = $(id);
+    c.className = "chip " + (ok === true ? "ok" : ok === false ? "bad" : "");
+    c.querySelector("span").textContent = text;
+  }
+
+  function showWaiting() {
+    shownId = null;
+    document.body.classList.remove("live");
+    const box = $("msd"); box.replaceChildren();
+    const w = el("div", "waiting");
+    w.append(el("div", "ring"), el("strong", "", "e-Call 대기 중"),
+             el("div", "", "차량이 갓길에 정차하면 MSD가 자동으로 표시됩니다."));
+    box.append(w);
+    $("ext").hidden = true; $("recv").textContent = "";
+  }
+
+  function value(label, v) {
+    if (/^https?:\/\//.test(v)) {
+      const a = el("a", "", label === "지도" ? "지도에서 보기" : "열기");
+      a.href = v; a.target = "_blank"; a.rel = "noopener";
+      return a;
+    }
+    return document.createTextNode(v);
+  }
+
+  function showEcall(e) {
+    if (e.msd_id === shownId) return;
+    shownId = e.msd_id;
+    document.body.classList.add("live");
+    document.body.classList.remove("flash"); void document.body.offsetWidth; document.body.classList.add("flash");
+
+    const box = $("msd"); box.replaceChildren();
+    const top = el("div", "msd-top");
+    top.append(el("h2", "", "MSD (Minimum Set of Data)"), el("span", "pill", "수신 완료"));
+    const rows = el("div", "rows");
+    e.sections.forEach((sec, i) => {
+      if (i) rows.append(el("div", "gap"));
+      sec.forEach(r => {
+        rows.append(el("div", "k", r.label));
+        const v = el("div", "v" + (HOT.has(r.label) ? " hot" : ""));
+        v.append(value(r.label, r.value));
+        rows.append(v);
+      });
+    });
+    box.append(top, el("div", "alert", e.head), rows);
+    if (e.errors && e.errors.length) box.append(el("div", "warn", "형식 경고: " + e.errors.join(" / ")));
+
+    const ph = $("photos"); ph.replaceChildren();
+    e.photos.forEach(p => {
+      const f = el("figure"), img = el("img");
+      img.src = p.url; img.alt = p.label;
+      img.onerror = () => { img.replaceWith(el("div", "nophoto", "사진을 열 수 없음 (Pi와 같은 Wi-Fi 필요)")); };
+      f.append(img, el("figcaption", "", p.label));
+      ph.append(f);
+    });
+    $("ext").hidden = !e.photos.length;
+    $("recv").textContent = "수신 시각 " + e.received;
+  }
+
+  function render(s) {
+    chip("chip-broker", s.connected, (s.demo ? "" : "브로커 ") + s.broker + (s.connected ? " · 연결됨" : " · 연결 중"));
+    const pi = s.pi === "online" ? true : s.pi === "offline" ? false : null;
+    chip("chip-pi", pi, "Raspberry Pi · " + (pi === true ? "온라인" : pi === false ? "오프라인" : "확인 중"));
+    $("topic").textContent = "MQTT 토픽 : " + s.topic;
+    if (s.ecall) showEcall(s.ecall); else if (shownId !== null || !$("msd").firstChild) showWaiting();
+  }
+
+  function reset() { fetch("/reset", { method: "POST" }).catch(() => {}); }
+  $("reset").onclick = reset;
+  document.addEventListener("keydown", ev => { if (ev.key === "r" || ev.key === "R") reset(); });
+
+  showWaiting();
+  const es = new EventSource("/events");
+  es.onmessage = ev => render(JSON.parse(ev.data));
+  es.onerror = () => chip("chip-broker", false, "화면 서버 연결 끊김 · 다시 연결 중");
+</script>
+</body>
+</html>
