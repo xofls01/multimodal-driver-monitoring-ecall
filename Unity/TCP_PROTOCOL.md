@@ -70,6 +70,7 @@ TCP는 패킷 경계를 보장하지 않으므로 양쪽 모두 줄바꿈까지 
 | `steering` | -1.0~1.0 | Remote 조향 요청. Caution+CAN에서는 Unity 물리 프레임의 차선 보정 필터를 거침. 음수 좌/양수 우 |
 | `hazard` | Boolean | 비상등 점멸 상태(일반 모드와 Remote 모드 모두 반영) |
 | `ecall` | Boolean | Remote e-Call 상태 |
+| `ecall_status`, `ecall_event_id`, `ecall_msd_id` | String (선택) | e-Call 실행 래퍼가 현재 정차 사건의 MQTT `SENT` 응답을 받으면 추가. Unity 왼쪽 아래에 `e-Call 전송 완료`를 3초간 한 번 표시. 기존 제어 입력에는 영향 없음 |
 | `control_mode` | `cruise`, `remote`, `manual` | 명시적인 일반 제어 모드 |
 | `remote_enabled` | Boolean | `control_mode` 없는 구버전 패킷의 호환 필드 |
 | `driver_state` | `Normal`, `Caution`, `Danger` | 운전자 분류 결과 (대소문자 무관) |

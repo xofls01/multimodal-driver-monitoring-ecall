@@ -21,6 +21,7 @@ public class DriverStateWarningUI : MonoBehaviour
     private string previousDriverState = "Normal";
     private const float WarningRepeatIntervalSeconds = 0.5f;
     private const float WindowReminderDurationSeconds = 3f;
+    private const float EcallNoticeDurationSeconds = 3f;
     private const float NoticeScale = 1.5f;
     private const int TextRenderScale = 3;
     private float nextWarningTime;
@@ -43,6 +44,10 @@ public class DriverStateWarningUI : MonoBehaviour
     private float windowReminderBrightness;
     private float windowReminderUntil = -1f;
     private bool windowReminderWasCaution;
+    private GameObject ecallSentNotice;
+    private CanvasGroup ecallSentNoticeGroup;
+    private string lastEcallSentEventId;
+    private float ecallSentNoticeUntil = -1f;
 
     private void Awake()
     {
@@ -96,6 +101,7 @@ public class DriverStateWarningUI : MonoBehaviour
         CreateAssistNotice();
         StyleCautionNotice();
         CreateWindowReminder();
+        CreateEcallSentNotice();
         StyleEmergencyNotice();
     }
 
@@ -139,6 +145,7 @@ public class DriverStateWarningUI : MonoBehaviour
         UpdateAssistNotice(state, emergencyActive);
         UpdateCautionNotice(state == "Caution" && !emergencyActive, emergencyActive || state == "Danger");
         UpdateWindowReminder(state == "Caution" && !emergencyActive, emergencyActive || state == "Danger");
+        UpdateEcallSentNotice();
         if (previousDriverState == "Caution" && (emergencyActive || state != "Caution"))
         {
             if (audioSource != null)
@@ -284,6 +291,69 @@ public class DriverStateWarningUI : MonoBehaviour
             new Vector2((backgroundWidth - 144f) * 0.5f, 0f);
         windowReminderText.color = new Color(0.96f, 0.99f, 1f, windowReminderBrightness);
         SetActive(windowReminderText.gameObject, windowReminderBrightness > 0.01f);
+    }
+
+    private void CreateEcallSentNotice()
+    {
+        Canvas canvas = GetComponentInParent<Canvas>();
+        if (canvas == null || assistNoticeSprite == null) return;
+        ecallSentNotice = new GameObject("EcallSentNotice", typeof(RectTransform), typeof(CanvasGroup));
+        ecallSentNotice.transform.SetParent(canvas.transform, false);
+        RectTransform rect = ecallSentNotice.GetComponent<RectTransform>();
+        rect.anchorMin = rect.anchorMax = Vector2.zero;
+        rect.pivot = Vector2.zero;
+        rect.sizeDelta = new Vector2(360f, 144f);
+        rect.anchoredPosition = new Vector2(36f, 36f);
+        CreateNoticeImage(rect, "EcallSentBackground", rect.sizeDelta, Vector2.zero,
+            new Color(0.035f, 0.07f, 0.075f, 0.86f));
+        Color accent = new Color(0.48f, 0.94f, 0.78f);
+        CreateNoticeImage(rect, "EcallCheckBackground", new Vector2(80f, 80f),
+            new Vector2(-108f, 0f), new Color(accent.r, accent.g, accent.b, 0.13f));
+        // Two small UI strips form a check mark; no icon file or effect shader needed.
+        Image shortStroke = CreateNoticeImage(rect, "EcallCheckShort", new Vector2(25f, 7f),
+            new Vector2(-118f, -7f), accent);
+        shortStroke.rectTransform.localRotation = Quaternion.Euler(0f, 0f, -45f);
+        Image longStroke = CreateNoticeImage(rect, "EcallCheckLong", new Vector2(49f, 7f),
+            new Vector2(-96f, 4f), accent);
+        longStroke.rectTransform.localRotation = Quaternion.Euler(0f, 0f, 45f);
+        Text message = CreateNoticeText(rect, "EcallSentMessage", 28, new Vector2(50f, 0f),
+            new Vector2(214f, 88f), new Color(0.96f, 0.99f, 1f));
+        message.text = "e-Call\n전송 완료";
+        message.fontStyle = FontStyle.Bold;
+        ecallSentNoticeGroup = ecallSentNotice.GetComponent<CanvasGroup>();
+        ecallSentNoticeGroup.alpha = 0f;
+        ecallSentNoticeGroup.interactable = false;
+        ecallSentNoticeGroup.blocksRaycasts = false;
+        ecallSentNotice.SetActive(false);
+    }
+
+    private void UpdateEcallSentNotice()
+    {
+        if (ecallSentNotice == null) return;
+        VehicleControlPacket command = tcpBridge == null ? null : tcpBridge.LatestCommand;
+        bool stopped = emergencyController != null
+            && emergencyController.Phase == EmergencyPullOverController.EmergencyPhase.Stopped;
+        bool confirmed = stopped && tcpBridge != null && tcpBridge.IsConnected && command != null
+            && command.ecall_status == "SENT" && !string.IsNullOrEmpty(command.ecall_event_id)
+            && !string.IsNullOrEmpty(command.ecall_msd_id);
+        if (!confirmed)
+        {
+            ecallSentNoticeUntil = -1f;
+            ecallSentNoticeGroup.alpha = 0f;
+            SetActive(ecallSentNotice, false);
+            return;
+        }
+        // Repeated 20Hz packets and duplicate MQTT results must not restart the notice.
+        if (command.ecall_event_id != lastEcallSentEventId)
+        {
+            lastEcallSentEventId = command.ecall_event_id;
+            ecallSentNoticeUntil = Time.unscaledTime + EcallNoticeDurationSeconds;
+        }
+        float target = Mathf.Clamp01((ecallSentNoticeUntil - Time.unscaledTime) / 0.15f);
+        if (target > 0f) SetActive(ecallSentNotice, true);
+        ecallSentNoticeGroup.alpha = Mathf.MoveTowards(ecallSentNoticeGroup.alpha,
+            target, Time.unscaledDeltaTime * 10f);
+        if (ecallSentNoticeGroup.alpha <= 0f) SetActive(ecallSentNotice, false);
     }
 
     private RectTransform StyleStateNotice(GameObject panel, Text message, string prefix,

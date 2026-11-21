@@ -60,6 +60,9 @@ public class VehicleControlPacket
     public float steering;
     public bool hazard;
     public bool ecall;
+    public string ecall_status;
+    public string ecall_event_id;
+    public string ecall_msd_id;
     public bool remote_enabled = true;
     public string control_mode;
     public string driver_state;
